@@ -269,10 +269,6 @@ void patch_game(void) {
 extern void *__cxa_atexit;
 extern void *__cxa_finalize;
 
-int __isfinitef(float d) {
-  return isfinite(d);
-}
-
 static const short _C_tolower_[] = {
   -1,
   0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
@@ -311,7 +307,13 @@ static const short _C_tolower_[] = {
 
 const short *_tolower_tab_ = _C_tolower_;
 
+static char *__ctype_ = (char *)&_ctype_;
+
 static FILE __sF_fake[0x100][3];
+
+int __isfinitef(float d) {
+  return isfinite(d);
+}
 
 FILE *fopen_hook(const char *filename, const char *mode) {
   FILE *file = fopen(filename, mode);
@@ -336,7 +338,7 @@ static DynLibFunction dynlib_functions[] = {
   // { "__google_potentially_blocking_region_end", (uintptr_t)&__google_potentially_blocking_region_end },
   { "__isfinitef", (uintptr_t)&__isfinitef },
   { "__sF", (uintptr_t)&__sF_fake },
-  { "_ctype_", (uintptr_t)&_ctype_ },
+  { "_ctype_", (uintptr_t)&__ctype_ },
   { "_tolower_tab_", (uintptr_t)&_tolower_tab_ },
 
   { "AAsset_close", (uintptr_t)&ret0 },
@@ -429,7 +431,7 @@ static DynLibFunction dynlib_functions[] = {
   { "fgetc", (uintptr_t)&fgetc },
   { "fgets", (uintptr_t)&fgets },
 
-  { "fopen", (uintptr_t)&fopen_hook },
+  { "fopen", (uintptr_t)&fopen },
   { "fprintf", (uintptr_t)&fprintf },
   { "fputc", (uintptr_t)&fputc },
   { "fputs", (uintptr_t)&fputs },
@@ -565,12 +567,12 @@ static DynLibFunction dynlib_functions[] = {
   // { "pthread_setschedparam", (uintptr_t)&pthread_setschedparam },
   { "pthread_setspecific", (uintptr_t)&ret0 },
 
-  { "sem_destroy", (uintptr_t)&sem_destroy_fake },
+  // { "sem_destroy", (uintptr_t)&sem_destroy_fake },
   // { "sem_getvalue", (uintptr_t)&sem_getvalue },
-  { "sem_init", (uintptr_t)&sem_init_fake },
-  { "sem_post", (uintptr_t)&sem_post_fake },
-  { "sem_trywait", (uintptr_t)&sem_trywait_fake },
-  { "sem_wait", (uintptr_t)&sem_wait_fake },
+  // { "sem_init", (uintptr_t)&sem_init_fake },
+  // { "sem_post", (uintptr_t)&sem_post_fake },
+  // { "sem_trywait", (uintptr_t)&sem_trywait_fake },
+  // { "sem_wait", (uintptr_t)&sem_wait_fake },
 
   { "putchar", (uintptr_t)&putchar },
   { "puts", (uintptr_t)&puts },
