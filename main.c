@@ -321,6 +321,16 @@ FILE *fopen_hook(const char *filename, const char *mode) {
   return file;
 }
 
+void glTexImage2DHook(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void * data) {
+  if (level == 0)
+    glTexImage2D(target, level, internalformat, width, height, border, format, type, data);
+}
+
+void glCompressedTexImage2DHook(GLenum target, GLint level, GLenum format, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const void * data) {
+  if (level == 0)
+    glCompressedTexImage2D(target, level, format, width, height, border, imageSize, data);
+}
+
 static DynLibFunction dynlib_functions[] = {
   { "__android_log_assert", (uintptr_t)&__android_log_assert },
   { "__android_log_print", (uintptr_t)&__android_log_print },
@@ -462,7 +472,7 @@ static DynLibFunction dynlib_functions[] = {
   { "glClearStencil", (uintptr_t)&glClearStencil },
   { "glColorMask", (uintptr_t)&glColorMask },
   { "glCompileShader", (uintptr_t)&glCompileShader },
-  { "glCompressedTexImage2D", (uintptr_t)&glCompressedTexImage2D },
+  { "glCompressedTexImage2D", (uintptr_t)&glCompressedTexImage2DHook },
   { "glCompressedTexSubImage2D", (uintptr_t)&ret0 }, // TODO
   { "glCreateProgram", (uintptr_t)&glCreateProgram },
   { "glCreateShader", (uintptr_t)&glCreateShader },
@@ -508,7 +518,7 @@ static DynLibFunction dynlib_functions[] = {
   { "glStencilFunc", (uintptr_t)&glStencilFunc },
   { "glStencilMask", (uintptr_t)&glStencilMask },
   { "glStencilOp", (uintptr_t)&glStencilOp },
-  { "glTexImage2D", (uintptr_t)&glTexImage2D },
+  { "glTexImage2D", (uintptr_t)&glTexImage2DHook },
   { "glTexParameterf", (uintptr_t)&glTexParameterf },
   { "glTexParameteri", (uintptr_t)&glTexParameteri },
   { "glTexSubImage2D", (uintptr_t)&glTexSubImage2D },
@@ -676,6 +686,7 @@ int main(int argc, char *argv[]) {
   so_free_temp();
 
   vglSetupRuntimeShaderCompiler(SHARK_OPT_UNSAFE, SHARK_ENABLE, SHARK_ENABLE, SHARK_ENABLE);
+  vglSetParamBufferSize(2 * 1024 * 1024);
   vglInitExtended(0, SCREEN_W, SCREEN_H, 16 * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
   vglUseVram(GL_TRUE);
 

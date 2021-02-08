@@ -22,6 +22,8 @@ enum MethodIDs {
   UNKNOWN = 0,
   INIT_EGL_AND_GLES2,
   SWAP_BUFFERS,
+  MAKE_CURRENT,
+  UN_MAKE_CURRENT,
   SHARE_TEXT,
   SHARE_IMAGE,
   GET_APP_LOCAL_VALUE,
@@ -43,6 +45,8 @@ typedef struct {
 static NameToMethodID name_to_method_ids[] = {
   { "InitEGLAndGLES2", INIT_EGL_AND_GLES2 },
   { "swapBuffers", SWAP_BUFFERS },
+  { "makeCurrent", MAKE_CURRENT },
+  { "unMakeCurrent", UN_MAKE_CURRENT },
 
   { "ShareText", SHARE_TEXT },
   { "ShareImage", SHARE_IMAGE },
@@ -198,13 +202,21 @@ float GetGamepadAxis(int a0, int axis) {
   return 0.0f;
 }
 
+int InitEGLAndGLES2(void) {
+  vglWaitVblankStart(GL_FALSE);
+  return 1;
+}
+
 int swapBuffers(void) {
   vglSwapBuffers(GL_FALSE);
   return 1;
 }
 
-int InitEGLAndGLES2(void) {
-  vglWaitVblankStart(GL_FALSE);
+int makeCurrent(void) {
+  return 1;
+}
+
+int unMakeCurrent(void) {
   return 1;
 }
 
@@ -239,6 +251,10 @@ int CallBooleanMethodV(void *env, void *obj, int methodID, uintptr_t *args) {
       return InitEGLAndGLES2();
     case SWAP_BUFFERS:
       return swapBuffers();
+    case MAKE_CURRENT:
+      return makeCurrent();
+    case UN_MAKE_CURRENT:
+      return unMakeCurrent();
     case DELETE_FILE:
       return DeleteFile((char *)args[0]);
     default:
