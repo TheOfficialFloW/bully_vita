@@ -16,6 +16,12 @@
 #include "main.h"
 #include "so_util.h"
 
+ALCcontext *alcCreateContextHook(ALCdevice *dev, const ALCint *unused) {
+  // override 22050hz with 44100hz in case someone wants high quality sounds
+  const ALCint attr[] = { ALC_FREQUENCY, 44100, 0 };
+  return alcCreateContext(dev, attr);
+}
+
 void patch_openal(void) {
   hook_thumb(so_find_addr("alAuxiliaryEffectSlotf"), (uintptr_t)alAuxiliaryEffectSlotf);
   hook_thumb(so_find_addr("alAuxiliaryEffectSlotfv"), (uintptr_t)alAuxiliaryEffectSlotfv);
@@ -119,7 +125,6 @@ void patch_openal(void) {
   hook_thumb(so_find_addr("alListeneri"), (uintptr_t)alListeneri);
   hook_thumb(so_find_addr("alListeneriv"), (uintptr_t)alListeneriv);
   hook_thumb(so_find_addr("alProcessUpdatesSOFT"), (uintptr_t)alProcessUpdatesSOFT);
-  hook_thumb(so_find_addr("alSetConfigMOB"), (uintptr_t)ret0);
   hook_thumb(so_find_addr("alSource3dSOFT"), (uintptr_t)alSource3dSOFT);
   hook_thumb(so_find_addr("alSource3f"), (uintptr_t)alSource3f);
   hook_thumb(so_find_addr("alSource3i"), (uintptr_t)alSource3i);
@@ -149,9 +154,8 @@ void patch_openal(void) {
   hook_thumb(so_find_addr("alcCaptureStart"), (uintptr_t)alcCaptureStart);
   hook_thumb(so_find_addr("alcCaptureStop"), (uintptr_t)alcCaptureStop);
   hook_thumb(so_find_addr("alcCloseDevice"), (uintptr_t)alcCloseDevice);
-  hook_thumb(so_find_addr("alcCreateContext"), (uintptr_t)alcCreateContext);
+  hook_thumb(so_find_addr("alcCreateContext"), (uintptr_t)alcCreateContextHook);
   hook_thumb(so_find_addr("alcDestroyContext"), (uintptr_t)alcDestroyContext);
-  hook_thumb(so_find_addr("alcDeviceEnableHrtfMOB"), (uintptr_t)ret0);
   hook_thumb(so_find_addr("alcGetContextsDevice"), (uintptr_t)alcGetContextsDevice);
   hook_thumb(so_find_addr("alcGetCurrentContext"), (uintptr_t)alcGetCurrentContext);
   hook_thumb(so_find_addr("alcGetEnumValue"), (uintptr_t)alcGetEnumValue);

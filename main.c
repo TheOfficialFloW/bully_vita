@@ -6,11 +6,24 @@
  * of the MIT license.  See the LICENSE file for details.
  */
 
+/*
+  TODO:
+  - mipmap
+  - fix menu controls
+*/
+
 #include <psp2/io/dirent.h>
 #include <psp2/io/fcntl.h>
+#include <psp2/kernel/clib.h>
+#include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
+#include <psp2/appmgr.h>
+#include <psp2/apputil.h>
+#include <psp2/ctrl.h>
 #include <psp2/power.h>
+#include <psp2/rtc.h>
 #include <psp2/touch.h>
+#include <taihen.h>
 #include <kubridge.h>
 #include <vitashark.h>
 #include <vitaGL.h>
@@ -35,14 +48,33 @@
 
 #include "main.h"
 #include "config.h"
+#include "dialog.h"
+#include "fios.h"
 #include "so_util.h"
 #include "jni_patch.h"
+#include "mpg123_patch.h"
 #include "openal_patch.h"
-#include "opengl_patch.h"
 
-int _newlib_heap_size_user = MEMORY_MB * 1024 * 1024;
+#include "sha1.h"
+
+#include "libc_bridge.h"
+
+int sceLibcHeapSize = MEMORY_SCELIBC_MB * 1024 * 1024;
+int _newlib_heap_size_user = MEMORY_NEWLIB_MB * 1024 * 1024;
 
 SceTouchPanelInfo panelInfoFront, panelInfoBack;
+
+void *__wrap_memcpy(void *dest, const void *src, size_t n) {
+  return sceClibMemcpy(dest, src, n);
+}
+
+void *__wrap_memmove(void *dest, const void *src, size_t n) {
+  return sceClibMemmove(dest, src, n);
+}
+
+void *__wrap_memset(void *s, int c, size_t n) {
+  return sceClibMemset(s, c, n);
+}
 
 int debugPrintf(char *text, ...) {
   va_list list;
@@ -123,6 +155,32 @@ int ProcessEvents(void) {
   return 0; // 1 is exit!
 }
 
+#define CLOCK_MONOTONIC 0
+int clock_gettime(int clk_id, struct timespec *tp) {
+  if (clk_id == CLOCK_MONOTONIC) {
+    SceKernelSysClock ticks;
+    sceKernelGetProcessTime(&ticks);
+
+    tp->tv_sec = ticks / (1000 * 1000);
+    tp->tv_nsec = (ticks * 1000) % (1000 * 1000 * 1000);
+
+    return 0;
+  } else if (clk_id == CLOCK_REALTIME) {
+    time_t seconds;
+    SceDateTime time;
+    sceRtcGetCurrentClockLocalTime(&time);
+
+    sceRtcGetTime_t(&time, &seconds);
+
+    tp->tv_sec = seconds;
+    tp->tv_nsec = time.microsecond * 1000;
+
+    return 0;
+  }
+
+  return -ENOSYS;
+}
+
 // only used for NVEventAppMain
 int pthread_create_fake(int r0, int r1, int r2, void *arg) {
   int (* func)() = *(void **)(arg + 4);
@@ -198,30 +256,32 @@ int thread_stub(SceSize args, uintptr_t *argp) {
   return sceKernelExitDeleteThread(0);
 }
 
-void *OS_ThreadLaunch(int (* func)(), void *arg, int r2, char *name, int r4, int priority) {
+// GameMain with cpu 0 and priority 3
+// Sound with cpu 0 and priority 3
+// RenderThread with cpu 2 and priority 3
+// CDStreamThread with cpu 0 and priority 3
+void *OS_ThreadLaunch(int (* func)(), void *arg, int cpu, char *name, int unused, int priority) {
   int vita_priority;
+  int vita_affinity;
 
-  switch (priority) {
-    case 0:
-      vita_priority = 0x40;
-      break;
-    case 1:
-      vita_priority = 0x10000100 - 31;
-      break;
-    case 2:
-      vita_priority = 0x10000100 - 15;
-      break;
-    case 3:
-      vita_priority = 0x10000100;
-      break;
-    default:
-      vita_priority = 0x10000100;
-      break;
+  if (strcmp(name, "GameMain") == 0) {
+    vita_priority = 65;
+    vita_affinity = 0x10000;
+  } else if (strcmp(name, "RenderThread") == 0) {
+    vita_priority = 65;
+    vita_affinity = 0x20000;
+  } else if (strcmp(name, "CDStreamThread") == 0) {
+    vita_priority = 64;
+    vita_affinity = 0x40000;
+  } else if (strcmp(name, "Sound") == 0) {
+    vita_priority = 65;
+    vita_affinity = 0x40000;
+  } else {
+    debugPrintf("Error unknown thread %s\n", name);
+    return NULL;
   }
 
-  debugPrintf("Launching thread %s\n", name);
-
-  SceUID thid = sceKernelCreateThread(name, (SceKernelThreadEntry)thread_stub, vita_priority, 128 * 1024, 0, 0, NULL);
+  SceUID thid = sceKernelCreateThread(name, (SceKernelThreadEntry)thread_stub, vita_priority, 128 * 1024, 0, vita_affinity, NULL);
   if (thid >= 0) {
     char *out = malloc(0x48);
     *(int *)(out + 0x24) = thid;
@@ -241,6 +301,10 @@ void *OS_ThreadLaunch(int (* func)(), void *arg, int r2, char *name, int r4, int
 void OS_ThreadWait(void *thread) {
   if (thread)
     sceKernelWaitThreadEnd(*(int *)(thread + 0x24), NULL, NULL);
+}
+
+void *TouchSense__TouchSense(void *this) {
+  return this;
 }
 
 extern void *__cxa_guard_acquire;
@@ -264,6 +328,15 @@ void patch_game(void) {
 
   // TODO: implement touch here
   hook_thumb(so_find_addr("_Z13ProcessEventsb"), (uintptr_t)ProcessEvents);
+
+  // no touch sense.
+  hook_thumb(so_find_addr("_ZN10TouchSenseC2Ev"), (uintptr_t)TouchSense__TouchSense);
+  hook_thumb(so_find_addr("_ZN10TouchSense20stopContinuousEffectEv"), (uintptr_t)ret0);
+  hook_thumb(so_find_addr("_ZN10TouchSense14stopAllEffectsEv"), (uintptr_t)ret0);
+  hook_thumb(so_find_addr("_ZN10TouchSense28startContinuousBuiltinEffectEiiii"), (uintptr_t)ret0);
+  hook_thumb(so_find_addr("_ZN10TouchSense25playBuiltinEffectInternalEii"), (uintptr_t)ret0);
+  hook_thumb(so_find_addr("_ZN10TouchSense17playBuiltinEffectEiiii"), (uintptr_t)ret0);
+  hook_thumb(so_find_addr("_ZN10TouchSense11loadEffectsEv"), (uintptr_t)ret0);
 }
 
 extern void *__cxa_atexit;
@@ -315,10 +388,158 @@ int __isfinitef(float d) {
   return isfinite(d);
 }
 
-FILE *fopen_hook(const char *filename, const char *mode) {
-  FILE *file = fopen(filename, mode);
-  debugPrintf("fopen %s: %p\n", filename, file);
-  return file;
+typedef struct BullyShader {
+  struct BullyShader *next;
+  int shader;
+  int has_gxp;
+  char name[64];
+} BullyShader;
+
+BullyShader *bully_shaders = NULL;
+
+void glShaderSourceHook(GLuint shader, GLsizei count, const GLchar **string, const GLint *length) {
+  uint32_t sha1[5];
+  SHA1_CTX ctx;
+
+  sha1_init(&ctx);
+  sha1_update(&ctx, (uint8_t *)*string, *length);
+  sha1_final(&ctx, (uint8_t *)sha1);
+
+  char sha_name[64];
+  snprintf(sha_name, sizeof(sha_name), "%08x%08x%08x%08x%08x", sha1[0], sha1[1], sha1[2], sha1[3], sha1[4]);
+
+  char glsl_path[128];
+  snprintf(glsl_path, sizeof(glsl_path), "%s/%s.glsl", GLSL_PATH, sha_name);
+
+  char gxp_path[128];
+  snprintf(gxp_path, sizeof(gxp_path), "%s/%s.gxp", GXP_PATH, sha_name);
+
+  int has_gxp = 0;
+
+  FILE *file = sceLibcBridge_fopen(gxp_path, "rb");
+  if (file) {
+    has_gxp = 1;
+
+    size_t shaderSize;
+    void *shaderBuf;
+
+    sceLibcBridge_fseek(file, 0, SEEK_END);
+    shaderSize = sceLibcBridge_ftell(file);
+    sceLibcBridge_fseek(file, 0, SEEK_SET);
+
+    shaderBuf = malloc(shaderSize);
+    sceLibcBridge_fread(shaderBuf, 1, shaderSize, file);
+    sceLibcBridge_fclose(file);
+
+    glShaderBinary(1, &shader, 0, shaderBuf, shaderSize);
+
+    free(shaderBuf);
+  } else {
+    has_gxp = 0;
+
+    debugPrintf("Could not find %s\n", gxp_path);
+
+    int is_vp = strstr(*string, "gl_Position") != NULL;
+    snprintf(gxp_path, sizeof(gxp_path), "%s/%s.gxp", GXP_PATH, is_vp ? "c9c875bddeb535ae438e64e4a9fa69154e17dac3" : "4542844bcf0ed3ab6836619e49078cf4ac3affe1");
+    file = sceLibcBridge_fopen(gxp_path, "rb");
+
+    size_t shaderSize;
+    void *shaderBuf;
+
+    sceLibcBridge_fseek(file, 0, SEEK_END);
+    shaderSize = sceLibcBridge_ftell(file);
+    sceLibcBridge_fseek(file, 0, SEEK_SET);
+
+    shaderBuf = malloc(shaderSize);
+    sceLibcBridge_fread(shaderBuf, 1, shaderSize, file);
+    sceLibcBridge_fclose(file);
+
+    glShaderBinary(1, &shader, 0, shaderBuf, shaderSize);
+
+    free(shaderBuf);
+
+    file = sceLibcBridge_fopen(glsl_path, "w");
+    if (file) {
+      sceLibcBridge_fwrite(*string, 1, *length, file);
+      sceLibcBridge_fclose(file);
+    }
+  }
+
+  BullyShader *new = calloc(1, sizeof(BullyShader));
+  new->has_gxp = has_gxp;
+  new->shader = shader;
+  strcpy(new->name, sha_name);
+
+  if (!bully_shaders) {
+    bully_shaders = new;
+  } else {
+    BullyShader *cur = bully_shaders;
+    while (cur->next)
+      cur = cur->next;
+    cur->next = new;
+  }
+}
+
+char *find_shader_name_by_id(int shader) {
+  BullyShader *cur = bully_shaders;
+  while (cur) {
+    if (cur->shader == shader)
+      return cur->name;
+    cur = cur->next;
+  }
+  return NULL;
+}
+
+int has_shader_gxp(int shader) {
+  BullyShader *cur = bully_shaders;
+  while (cur) {
+    if (cur->shader == shader)
+      return cur->has_gxp;
+    cur = cur->next;
+  }
+  return 0;
+}
+
+int prev_shader = 0;
+int attach_count = 0;
+void glAttachShaderHook(GLuint program, GLuint shader) {
+  if (attach_count == 0) {
+    prev_shader = shader;
+  } else if (attach_count == 1) {
+    if (!has_shader_gxp(prev_shader) || !has_shader_gxp(shader)) {
+      char *vp = find_shader_name_by_id(prev_shader);
+      char *fp = find_shader_name_by_id(shader);
+      debugPrintf("vp:%s, fp:%s\n", vp, fp);
+    }
+  }
+  attach_count = (attach_count + 1) % 2;
+
+  glAttachShader(program, shader);
+}
+
+void glGetShaderivHook(GLuint shader, GLenum pname, GLint *params) {
+  *params = 1;
+}
+
+void glCompileShaderHook(GLuint shader) {
+}
+
+void glBindAttribLocationHook(GLuint prog, GLuint index, const GLchar *name) {
+  char new_name[128];
+  snprintf(new_name, sizeof(new_name), "input._%s", name);
+  glBindAttribLocation(prog, index, new_name);
+}
+
+GLint glGetUniformLocationHook(GLuint prog, const GLchar *name) {
+  char new_name[128];
+  snprintf(new_name, sizeof(new_name), "_%s", name);
+  return glGetUniformLocation(prog, new_name);
+}
+
+GLint glGetAttribLocationHook(GLuint prog, const GLchar *name) {
+  char new_name[128];
+  snprintf(new_name, sizeof(new_name), "input._%s", name);
+  return glGetAttribLocation(prog, new_name);
 }
 
 void glTexImage2DHook(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void * data) {
@@ -327,7 +548,8 @@ void glTexImage2DHook(GLenum target, GLint level, GLint internalformat, GLsizei 
 }
 
 void glCompressedTexImage2DHook(GLenum target, GLint level, GLenum format, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const void * data) {
-  if (level == 0)
+  // mips for PVRTC textures break when they're under 1 block in size
+  if (level == 0) // || ((width >= 4 && height >= 4) || (format != 0x8C01 && format != 0x8C02)))
     glCompressedTexImage2D(target, level, format, width, height, border, imageSize, data);
 }
 
@@ -340,12 +562,6 @@ static DynLibFunction dynlib_functions[] = {
   { "__cxa_atexit", (uintptr_t)&__cxa_atexit },
   { "__cxa_finalize", (uintptr_t)&__cxa_finalize },
   { "__errno", (uintptr_t)&__errno },
-  // { "__gnu_Unwind_Find_exidx", (uintptr_t)&__gnu_Unwind_Find_exidx },
-  // { "__gnu_Unwind_Find_exidx", (uintptr_t)&__gnu_Unwind_Find_exidx },
-  // { "__google_potentially_blocking_region_begin", (uintptr_t)&__google_potentially_blocking_region_begin },
-  // { "__google_potentially_blocking_region_begin", (uintptr_t)&__google_potentially_blocking_region_begin },
-  // { "__google_potentially_blocking_region_end", (uintptr_t)&__google_potentially_blocking_region_end },
-  // { "__google_potentially_blocking_region_end", (uintptr_t)&__google_potentially_blocking_region_end },
   { "__isfinitef", (uintptr_t)&__isfinitef },
   { "__sF", (uintptr_t)&__sF_fake },
   { "_ctype_", (uintptr_t)&__ctype_ },
@@ -361,22 +577,6 @@ static DynLibFunction dynlib_functions[] = {
 
   { "abort", (uintptr_t)&abort },
   { "exit", (uintptr_t)&exit },
-
-  // { "accept", (uintptr_t)&accept },
-  // { "bind", (uintptr_t)&bind },
-  // { "connect", (uintptr_t)&connect },
-  // { "gethostbyaddr", (uintptr_t)&gethostbyaddr },
-  // { "gethostbyname", (uintptr_t)&gethostbyname },
-  // { "getsockname", (uintptr_t)&getsockname },
-  // { "getsockopt", (uintptr_t)&getsockopt },
-  // { "inet_aton", (uintptr_t)&inet_aton },
-  // { "inet_ntoa", (uintptr_t)&inet_ntoa },
-  // { "listen", (uintptr_t)&listen },
-  // { "recvmsg", (uintptr_t)&recvmsg },
-  // { "sendmsg", (uintptr_t)&sendmsg },
-  // { "setsockopt", (uintptr_t)&setsockopt },
-  // { "shutdown", (uintptr_t)&shutdown },
-  // { "socket", (uintptr_t)&socket },
 
   { "acosf", (uintptr_t)&acosf },
   { "asinf", (uintptr_t)&asinf },
@@ -413,7 +613,7 @@ static DynLibFunction dynlib_functions[] = {
 
   { "atoi", (uintptr_t)&atoi },
 
-  // { "clock_gettime", (uintptr_t)&clock_gettime },
+  { "clock_gettime", (uintptr_t)&clock_gettime },
   { "gettimeofday", (uintptr_t)&gettimeofday },
   { "localtime_r", (uintptr_t)&localtime_r },
   { "time", (uintptr_t)&time },
@@ -435,30 +635,30 @@ static DynLibFunction dynlib_functions[] = {
   // { "eglGetProcAddress", (uintptr_t)&eglGetProcAddress },
   // { "eglQueryString", (uintptr_t)&eglQueryString },
 
-  { "fclose", (uintptr_t)&fclose },
-  { "fdopen", (uintptr_t)&fdopen },
-  { "fflush", (uintptr_t)&fflush },
-  { "fgetc", (uintptr_t)&fgetc },
-  { "fgets", (uintptr_t)&fgets },
+  { "fclose", (uintptr_t)&sceLibcBridge_fclose },
+  // { "fdopen", (uintptr_t)&fdopen },
+  // { "fflush", (uintptr_t)&fflush },
+  // { "fgetc", (uintptr_t)&fgetc },
+  // { "fgets", (uintptr_t)&fgets },
 
-  { "fopen", (uintptr_t)&fopen },
-  { "fprintf", (uintptr_t)&fprintf },
-  { "fputc", (uintptr_t)&fputc },
-  { "fputs", (uintptr_t)&fputs },
-  { "fread", (uintptr_t)&fread },
-  { "fseek", (uintptr_t)&fseek },
-  { "ftell", (uintptr_t)&ftell },
-  { "fwrite", (uintptr_t)&fwrite },
+  { "fopen", (uintptr_t)&sceLibcBridge_fopen },
+  { "fprintf", (uintptr_t)&sceLibcBridge_fprintf },
+  // { "fputc", (uintptr_t)&sceLibcBridge_fputc },
+  // { "fputs", (uintptr_t)&sceLibcBridge_fputs },
+  { "fread", (uintptr_t)&sceLibcBridge_fread },
+  { "fseek", (uintptr_t)&sceLibcBridge_fseek },
+  { "ftell", (uintptr_t)&sceLibcBridge_ftell },
+  { "fwrite", (uintptr_t)&sceLibcBridge_fwrite },
 
-  { "getc", (uintptr_t)&getc },
-  { "ungetc", (uintptr_t)&ungetc },
+  // { "getc", (uintptr_t)&getc },
+  // { "ungetc", (uintptr_t)&ungetc },
 
   { "getenv", (uintptr_t)&getenv },
   // { "gettid", (uintptr_t)&gettid },
 
   { "glActiveTexture", (uintptr_t)&glActiveTexture },
-  { "glAttachShader", (uintptr_t)&glAttachShader },
-  { "glBindAttribLocation", (uintptr_t)&glBindAttribLocation },
+  { "glAttachShader", (uintptr_t)&glAttachShaderHook },
+  { "glBindAttribLocation", (uintptr_t)&glBindAttribLocationHook },
   { "glBindBuffer", (uintptr_t)&glBindBuffer },
   { "glBindFramebuffer", (uintptr_t)&glBindFramebuffer },
   { "glBindRenderbuffer", (uintptr_t)&ret0 },
@@ -471,7 +671,7 @@ static DynLibFunction dynlib_functions[] = {
   { "glClearDepthf", (uintptr_t)&glClearDepthf },
   { "glClearStencil", (uintptr_t)&glClearStencil },
   { "glColorMask", (uintptr_t)&glColorMask },
-  { "glCompileShader", (uintptr_t)&glCompileShader },
+  { "glCompileShader", (uintptr_t)&glCompileShaderHook },
   { "glCompressedTexImage2D", (uintptr_t)&glCompressedTexImage2DHook },
   { "glCompressedTexSubImage2D", (uintptr_t)&ret0 }, // TODO
   { "glCreateProgram", (uintptr_t)&glCreateProgram },
@@ -498,23 +698,23 @@ static DynLibFunction dynlib_functions[] = {
   { "glGenFramebuffers", (uintptr_t)&glGenFramebuffers },
   { "glGenRenderbuffers", (uintptr_t)&ret0 },
   { "glGenTextures", (uintptr_t)&glGenTextures },
-  { "glGetAttribLocation", (uintptr_t)&glGetAttribLocation },
+  { "glGetAttribLocation", (uintptr_t)&glGetAttribLocationHook },
   { "glGetBooleanv", (uintptr_t)&glGetBooleanv },
   { "glGetError", (uintptr_t)&glGetError },
   { "glGetIntegerv", (uintptr_t)&glGetIntegerv },
   { "glGetProgramInfoLog", (uintptr_t)&glGetProgramInfoLog },
   { "glGetProgramiv", (uintptr_t)&glGetProgramiv },
   { "glGetShaderInfoLog", (uintptr_t)&glGetShaderInfoLog },
-  { "glGetShaderiv", (uintptr_t)&glGetShaderiv },
+  { "glGetShaderiv", (uintptr_t)&glGetShaderivHook },
   { "glGetString", (uintptr_t)&glGetString },
-  { "glGetUniformLocation", (uintptr_t)&glGetUniformLocation },
+  { "glGetUniformLocation", (uintptr_t)&glGetUniformLocationHook },
   { "glLineWidth", (uintptr_t)&glLineWidth },
   { "glLinkProgram", (uintptr_t)&glLinkProgram },
   { "glPolygonOffset", (uintptr_t)&glPolygonOffset },
   { "glReadPixels", (uintptr_t)&glReadPixels },
   { "glRenderbufferStorage", (uintptr_t)&ret0 },
   { "glScissor", (uintptr_t)&glScissor },
-  { "glShaderSource", (uintptr_t)&glShaderSource },
+  { "glShaderSource", (uintptr_t)&glShaderSourceHook },
   { "glStencilFunc", (uintptr_t)&glStencilFunc },
   { "glStencilMask", (uintptr_t)&glStencilMask },
   { "glStencilOp", (uintptr_t)&glStencilOp },
@@ -535,16 +735,16 @@ static DynLibFunction dynlib_functions[] = {
   { "lrand48", (uintptr_t)&lrand48 },
   { "srand48", (uintptr_t)&srand48 },
 
-  { "memchr", (uintptr_t)&memchr },
-  { "memcmp", (uintptr_t)&memcmp },
-  { "memcpy", (uintptr_t)&memcpy },
-  { "memmove", (uintptr_t)&memmove },
-  { "memset", (uintptr_t)&memset },
+  { "memchr", (uintptr_t)&sceClibMemchr },
+  { "memcmp", (uintptr_t)&sceClibMemcmp },
+  { "memcpy", (uintptr_t)&sceClibMemcpy },
+  { "memmove", (uintptr_t)&sceClibMemmove },
+  { "memset", (uintptr_t)&sceClibMemset },
 
   // { "nanosleep", (uintptr_t)&nanosleep },
   { "usleep", (uintptr_t)&usleep },
 
-  { "printf", (uintptr_t)&printf },
+  { "printf", (uintptr_t)&debugPrintf },
 
   { "pthread_attr_destroy", (uintptr_t)&ret0 },
   // { "pthread_attr_getschedparam", (uintptr_t)&pthread_attr_getschedparam },
@@ -615,27 +815,19 @@ static DynLibFunction dynlib_functions[] = {
   { "strerror", (uintptr_t)&strerror },
   { "strftime", (uintptr_t)&strftime },
   { "strlen", (uintptr_t)&strlen },
-  { "strncasecmp", (uintptr_t)&strncasecmp },
-  { "strncat", (uintptr_t)&strncat },
-  { "strncmp", (uintptr_t)&strncmp },
-  { "strncpy", (uintptr_t)&strncpy },
+  { "strncasecmp", (uintptr_t)&sceClibStrncasecmp },
+  { "strncat", (uintptr_t)&sceClibStrncat },
+  { "strncmp", (uintptr_t)&sceClibStrncmp },
+  { "strncpy", (uintptr_t)&sceClibStrncpy },
   { "strpbrk", (uintptr_t)&strpbrk },
-  { "strrchr", (uintptr_t)&strrchr },
+  { "strrchr", (uintptr_t)&sceClibStrrchr },
   { "strspn", (uintptr_t)&strspn },
-  { "strstr", (uintptr_t)&strstr },
+  { "strstr", (uintptr_t)&sceClibStrstr },
   { "strtod", (uintptr_t)&strtod },
   { "strtok", (uintptr_t)&strtok },
   { "strtol", (uintptr_t)&strtol },
   { "strtoul", (uintptr_t)&strtoul },
   { "strxfrm", (uintptr_t)&strxfrm },
-
-  // { "syscall", (uintptr_t)&syscall },
-  // { "sysconf", (uintptr_t)&sysconf },
-
-  // { "touchsensesdk_addResource", (uintptr_t)&touchsensesdk_addResource },
-  // { "touchsensesdk_create", (uintptr_t)&touchsensesdk_create },
-  // { "touchsensesdk_play", (uintptr_t)&touchsensesdk_play },
-  // { "touchsensesdk_stop", (uintptr_t)&touchsensesdk_stop },
 
   { "vprintf", (uintptr_t)&vprintf },
   { "vsnprintf", (uintptr_t)&vsnprintf },
@@ -661,7 +853,20 @@ static DynLibFunction dynlib_functions[] = {
   { "wmemset", (uintptr_t)&wmemset },
 };
 
+int check_kubridge(void) {
+  int search_unk[2];
+  return _vshKernelSearchModuleByName("kubridge", search_unk);
+}
+
+int file_exists(const char *path) {
+  SceIoStat stat;
+  return sceIoGetstat(path, &stat) >= 0;
+}
+
 int main(int argc, char *argv[]) {
+  sceKernelChangeThreadPriority(0, 127);
+  sceKernelChangeThreadCpuAffinityMask(0, 0x40000);
+
   sceCtrlSetSamplingModeExt(SCE_CTRL_MODE_ANALOG_WIDE);
   sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START);
   sceTouchSetSamplingState(SCE_TOUCH_PORT_BACK, SCE_TOUCH_SAMPLING_STATE_START);
@@ -673,21 +878,34 @@ int main(int argc, char *argv[]) {
   scePowerSetGpuClockFrequency(222);
   scePowerSetGpuXbarClockFrequency(166);
 
-  so_load(SO_PATH);
+  sceIoMkdir(GLSL_PATH, 0777);
+
+  if (check_kubridge() < 0)
+    fatal_error("Error kubridge.skprx is not installed.");
+
+  if (!file_exists("ur0:/data/libshacccg.suprx"))
+    fatal_error("Error libshacccg.suprx is not installed.");
+
+  if (so_load(SO_PATH) < 0)
+    fatal_error("Error could not load %s.", SO_PATH);
+
   so_relocate();
   so_resolve(dynlib_functions, sizeof(dynlib_functions) / sizeof(DynLibFunction), 1);
 
+  patch_mpg123();
   patch_openal();
-  patch_opengl();
   patch_game();
   so_flush_caches();
 
   so_execute_init_array();
   so_free_temp();
 
+  if (fios_init() < 0)
+    fatal_error("Error could not initialize fios.");
+
   vglSetupRuntimeShaderCompiler(SHARK_OPT_UNSAFE, SHARK_ENABLE, SHARK_ENABLE, SHARK_ENABLE);
   vglSetParamBufferSize(2 * 1024 * 1024);
-  vglInitExtended(0, SCREEN_W, SCREEN_H, 16 * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
+  vglInitExtended(0, SCREEN_W, SCREEN_H, MEMORY_VITAGL_THRESHOLD_MB * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
   vglUseVram(GL_TRUE);
 
   jni_load();

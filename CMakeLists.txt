@@ -14,15 +14,18 @@ set(VITA_APP_NAME "Bully")
 set(VITA_TITLEID  "BULLY0000")
 set(VITA_MKSFOEX_FLAGS "-d ATTRIBUTE2=12")
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -Wl,-q -Wall -O3 -mfloat-abi=softfp")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -Wl,-q,--wrap,memcpy,--wrap,memmove,--wrap,memset -Wall -O3 -mfloat-abi=softfp")
 set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -std=c++11")
 
 add_executable(Bully
   main.c
+  dialog.c
+  fios.c
   so_util.c
   jni_patch.c
+  mpg123_patch.c
   openal_patch.c
-  opengl_patch.c
+  sha1.c
 )
 
 target_link_libraries(Bully
@@ -30,11 +33,13 @@ target_link_libraries(Bully
   stdc++
   m
   mathneon
+  mpg123
   openal
   vitaGL
   vitashark
   kubridge_stub
   SceAppMgr_stub
+  SceAppUtil_stub
   SceAudio_stub
   SceAudioIn_stub
   SceCtrl_stub
@@ -42,17 +47,22 @@ target_link_libraries(Bully
   SceDisplay_stub
   SceFios2_stub
   SceGxm_stub
+  SceLibcBridge_stub
   SceShaccCg_stub
   SceSysmodule_stub
   ScePower_stub
   SceTouch_stub
-  SceAppUtil_stub
+  SceVshBridge_stub
 )
 
 vita_create_self(eboot.bin Bully UNSAFE)
 vita_create_vpk(Bully.vpk ${VITA_TITLEID} eboot.bin
   VERSION ${VITA_VERSION}
   NAME ${VITA_APP_NAME}
+  FILE ${CMAKE_SOURCE_DIR}/sce_sys/icon0.png sce_sys/icon0.png
+       ${CMAKE_SOURCE_DIR}/sce_sys/livearea/contents/bg.png sce_sys/livearea/contents/bg.png
+       ${CMAKE_SOURCE_DIR}/sce_sys/livearea/contents/startup.png sce_sys/livearea/contents/startup.png
+       ${CMAKE_SOURCE_DIR}/sce_sys/livearea/contents/template.xml sce_sys/livearea/contents/template.xml
 )
 
 add_custom_target(copy
