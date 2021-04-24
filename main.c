@@ -9,7 +9,6 @@
 /*
   TODO:
   - mipmap
-  - fix menu controls
 */
 
 #include <psp2/io/dirent.h>
@@ -215,38 +214,6 @@ int pthread_mutex_unlock_fake(SceKernelLwMutexWork **work) {
   return 0;
 }
 
-int sem_init_fake(int *uid) {
-  *uid = sceKernelCreateSema("sema", 0, 0, 0x7fffffff, NULL);
-  if (*uid < 0)
-    return -1;
-  return 0;
-}
-
-int sem_post_fake(int *uid) {
-  if (sceKernelSignalSema(*uid, 1) < 0)
-    return -1;
-  return 0;
-}
-
-int sem_wait_fake(int *uid) {
-  if (sceKernelWaitSema(*uid, 1, NULL) < 0)
-    return -1;
-  return 0;
-}
-
-int sem_trywait_fake(int *uid) {
-  SceUInt timeout = 0;
-  if (sceKernelWaitSema(*uid, 1, &timeout) < 0)
-    return -1;
-  return 0;
-}
-
-int sem_destroy_fake(int *uid) {
-  if (sceKernelDeleteSema(*uid) < 0)
-    return -1;
-  return 0;
-}
-
 int thread_stub(SceSize args, uintptr_t *argp) {
   int (* func)(void *arg) = (void *)argp[0];
   void *arg = (void *)argp[1];
@@ -268,12 +235,12 @@ void *OS_ThreadLaunch(int (* func)(), void *arg, int cpu, char *name, int unused
     vita_priority = 65;
     vita_affinity = 0x10000;
   } else if (strcmp(name, "RenderThread") == 0) {
+    vita_priority = 64;
+    vita_affinity = 0x20000;
+  } else if (strcmp(name, "Sound") == 0) {
     vita_priority = 65;
     vita_affinity = 0x20000;
   } else if (strcmp(name, "CDStreamThread") == 0) {
-    vita_priority = 64;
-    vita_affinity = 0x40000;
-  } else if (strcmp(name, "Sound") == 0) {
     vita_priority = 65;
     vita_affinity = 0x40000;
   } else {
@@ -777,28 +744,13 @@ static DynLibFunction dynlib_functions[] = {
   // { "pthread_setschedparam", (uintptr_t)&pthread_setschedparam },
   { "pthread_setspecific", (uintptr_t)&ret0 },
 
-  // { "sem_destroy", (uintptr_t)&sem_destroy_fake },
-  // { "sem_getvalue", (uintptr_t)&sem_getvalue },
-  // { "sem_init", (uintptr_t)&sem_init_fake },
-  // { "sem_post", (uintptr_t)&sem_post_fake },
-  // { "sem_trywait", (uintptr_t)&sem_trywait_fake },
-  // { "sem_wait", (uintptr_t)&sem_wait_fake },
-
   { "putchar", (uintptr_t)&putchar },
   { "puts", (uintptr_t)&puts },
 
   { "bsearch", (uintptr_t)&bsearch },
   { "qsort", (uintptr_t)&qsort },
 
-  // { "raise", (uintptr_t)&raise },
-  // { "select", (uintptr_t)&select },
   { "sigaction", (uintptr_t)&ret0 },
-
-  // { "sched_get_priority_max", (uintptr_t)&sched_get_priority_max },
-  // { "sched_get_priority_min", (uintptr_t)&sched_get_priority_min },
-  // { "sched_yield", (uintptr_t)&sched_yield },
-
-  // { "setlocale", (uintptr_t)&setlocale },
 
   { "snprintf", (uintptr_t)&snprintf },
   { "sprintf", (uintptr_t)&sprintf },
@@ -905,7 +857,7 @@ int main(int argc, char *argv[]) {
 
   vglSetupRuntimeShaderCompiler(SHARK_OPT_UNSAFE, SHARK_ENABLE, SHARK_ENABLE, SHARK_ENABLE);
   vglSetParamBufferSize(2 * 1024 * 1024);
-  vglInitExtended(0, SCREEN_W, SCREEN_H, MEMORY_VITAGL_THRESHOLD_MB * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
+  vglInitExtended(0, SCREEN_W, SCREEN_H, MEMORY_VITAGL_THRESHOLD_MB * 1024 * 1024, SCE_GXM_MULTISAMPLE_2X);
   vglUseVram(GL_TRUE);
 
   jni_load();
