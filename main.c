@@ -79,7 +79,7 @@ void *__wrap_memset(void *s, int c, size_t n) {
 
 int debugPrintf(char *text, ...) {
   va_list list;
-  static char string[0x1000];
+  char string[512];
 
   va_start(list, text);
   vsprintf(string, text, list);
@@ -96,7 +96,7 @@ int debugPrintf(char *text, ...) {
 
 void __android_log_assert(const char *cond, const char *tag, const char *fmt, ...) {
   va_list list;
-  static char string[0x1000];
+  char string[512];
 
   va_start(list, fmt);
   vsprintf(string, fmt, list);
@@ -107,7 +107,7 @@ void __android_log_assert(const char *cond, const char *tag, const char *fmt, ..
 
 int __android_log_print(int prio, const char *tag, const char *fmt, ...) {
   va_list list;
-  static char string[0x1000];
+  char string[512];
 
   va_start(list, fmt);
   vsprintf(string, fmt, list);
@@ -119,7 +119,7 @@ int __android_log_print(int prio, const char *tag, const char *fmt, ...) {
 }
 
 int __android_log_vprint(int prio, const char *tag, const char *fmt, va_list ap) {
-  static char string[0x1000];
+  char string[512];
   vsprintf(string, fmt, ap);
   debugPrintf("[LOG] %s: %s\n", tag, string);
   return 0;
