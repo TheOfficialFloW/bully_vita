@@ -357,6 +357,14 @@ int __isfinitef(float d) {
   return isfinite(d);
 }
 
+int stat_hook(const char *pathname, void *statbuf) {
+  struct stat st;
+  int res = stat(pathname, &st);
+  if (res == 0)
+    *(int *)(statbuf + 0x50) = st.st_mtime;
+  return res;
+}
+
 void glShaderSourceHook(GLuint shader, GLsizei count, const GLchar **string, const GLint *length) {
   uint32_t sha1[5];
   SHA1_CTX ctx;
@@ -511,7 +519,7 @@ static DynLibFunction dynlib_functions[] = {
   // { "opendir", (uintptr_t)&opendir },
   // { "read", (uintptr_t)&read },
   // { "readdir", (uintptr_t)&readdir },
-  { "stat", (uintptr_t)&stat },
+  { "stat", (uintptr_t)&stat_hook },
   // { "write", (uintptr_t)&write },
 
   { "eglGetCurrentContext", (uintptr_t)&ret0 },
@@ -771,7 +779,7 @@ int main(int argc, char *argv[]) {
   if (fios_init() < 0)
     fatal_error("Error could not initialize fios.");
 
-  vglSetupRuntimeShaderCompiler(SHARK_OPT_UNSAFE, SHARK_ENABLE, SHARK_ENABLE, SHARK_ENABLE);
+  vglEnableRuntimeShaderCompiler(GL_FALSE);
   vglSetParamBufferSize(2 * 1024 * 1024);
   vglInitExtended(0, SCREEN_W, SCREEN_H, MEMORY_VITAGL_THRESHOLD_MB * 1024 * 1024, SCE_GXM_MULTISAMPLE_2X);
   vglUseVram(GL_TRUE);

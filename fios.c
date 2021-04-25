@@ -16,12 +16,12 @@
 #include "so_util.h"
 
 #define MAX_PATH_LENGTH 256
-#define RAMCACHEBLOCKSIZE (64 * 1024)
-#define RAMCACHEBLOCKNUM 128
+#define RAMCACHEBLOCKSIZE (128 * 1024)
+#define RAMCACHEBLOCKNUM 32
 
 static int64_t g_OpStorage[SCE_FIOS_OP_STORAGE_SIZE(64, MAX_PATH_LENGTH) / sizeof(int64_t) + 1];
 static int64_t g_ChunkStorage[SCE_FIOS_CHUNK_STORAGE_SIZE(1024) / sizeof(int64_t) + 1];
-static int64_t g_FHStorage[SCE_FIOS_FH_STORAGE_SIZE(128, MAX_PATH_LENGTH) / sizeof(int64_t) + 1];
+static int64_t g_FHStorage[SCE_FIOS_FH_STORAGE_SIZE(32, MAX_PATH_LENGTH) / sizeof(int64_t) + 1];
 static int64_t g_DHStorage[SCE_FIOS_DH_STORAGE_SIZE(32, MAX_PATH_LENGTH) / sizeof(int64_t) + 1];
 
 static SceFiosRamCacheContext g_RamCacheContext = SCE_FIOS_RAM_CACHE_CONTEXT_INITIALIZER;
