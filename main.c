@@ -8,7 +8,9 @@
 
 /*
   TODO:
-  - mipmap
+  - support mipmaps (memory constraint)
+  - remove detail textures
+  - higher resolution (clarity)
 */
 
 #include <psp2/io/dirent.h>
@@ -355,15 +357,6 @@ int __isfinitef(float d) {
   return isfinite(d);
 }
 
-typedef struct BullyShader {
-  struct BullyShader *next;
-  int shader;
-  int has_gxp;
-  char name[64];
-} BullyShader;
-
-BullyShader *bully_shaders = NULL;
-
 void glShaderSourceHook(GLuint shader, GLsizei count, const GLchar **string, const GLint *length) {
   uint32_t sha1[5];
   SHA1_CTX ctx;
@@ -375,18 +368,11 @@ void glShaderSourceHook(GLuint shader, GLsizei count, const GLchar **string, con
   char sha_name[64];
   snprintf(sha_name, sizeof(sha_name), "%08x%08x%08x%08x%08x", sha1[0], sha1[1], sha1[2], sha1[3], sha1[4]);
 
-  char glsl_path[128];
-  snprintf(glsl_path, sizeof(glsl_path), "%s/%s.glsl", GLSL_PATH, sha_name);
-
   char gxp_path[128];
   snprintf(gxp_path, sizeof(gxp_path), "%s/%s.gxp", GXP_PATH, sha_name);
 
-  int has_gxp = 0;
-
   FILE *file = sceLibcBridge_fopen(gxp_path, "rb");
   if (file) {
-    has_gxp = 1;
-
     size_t shaderSize;
     void *shaderBuf;
 
@@ -402,28 +388,10 @@ void glShaderSourceHook(GLuint shader, GLsizei count, const GLchar **string, con
 
     free(shaderBuf);
   } else {
-    has_gxp = 0;
-
     debugPrintf("Could not find %s\n", gxp_path);
 
-    int is_vp = strstr(*string, "gl_Position") != NULL;
-    snprintf(gxp_path, sizeof(gxp_path), "%s/%s.gxp", GXP_PATH, is_vp ? "c9c875bddeb535ae438e64e4a9fa69154e17dac3" : "4542844bcf0ed3ab6836619e49078cf4ac3affe1");
-    file = sceLibcBridge_fopen(gxp_path, "rb");
-
-    size_t shaderSize;
-    void *shaderBuf;
-
-    sceLibcBridge_fseek(file, 0, SEEK_END);
-    shaderSize = sceLibcBridge_ftell(file);
-    sceLibcBridge_fseek(file, 0, SEEK_SET);
-
-    shaderBuf = malloc(shaderSize);
-    sceLibcBridge_fread(shaderBuf, 1, shaderSize, file);
-    sceLibcBridge_fclose(file);
-
-    glShaderBinary(1, &shader, 0, shaderBuf, shaderSize);
-
-    free(shaderBuf);
+    char glsl_path[128];
+    snprintf(glsl_path, sizeof(glsl_path), "%s/%s.glsl", GLSL_PATH, sha_name);
 
     file = sceLibcBridge_fopen(glsl_path, "w");
     if (file) {
@@ -431,57 +399,6 @@ void glShaderSourceHook(GLuint shader, GLsizei count, const GLchar **string, con
       sceLibcBridge_fclose(file);
     }
   }
-
-  BullyShader *new = calloc(1, sizeof(BullyShader));
-  new->has_gxp = has_gxp;
-  new->shader = shader;
-  strcpy(new->name, sha_name);
-
-  if (!bully_shaders) {
-    bully_shaders = new;
-  } else {
-    BullyShader *cur = bully_shaders;
-    while (cur->next)
-      cur = cur->next;
-    cur->next = new;
-  }
-}
-
-char *find_shader_name_by_id(int shader) {
-  BullyShader *cur = bully_shaders;
-  while (cur) {
-    if (cur->shader == shader)
-      return cur->name;
-    cur = cur->next;
-  }
-  return NULL;
-}
-
-int has_shader_gxp(int shader) {
-  BullyShader *cur = bully_shaders;
-  while (cur) {
-    if (cur->shader == shader)
-      return cur->has_gxp;
-    cur = cur->next;
-  }
-  return 0;
-}
-
-int prev_shader = 0;
-int attach_count = 0;
-void glAttachShaderHook(GLuint program, GLuint shader) {
-  if (attach_count == 0) {
-    prev_shader = shader;
-  } else if (attach_count == 1) {
-    if (!has_shader_gxp(prev_shader) || !has_shader_gxp(shader)) {
-      char *vp = find_shader_name_by_id(prev_shader);
-      char *fp = find_shader_name_by_id(shader);
-      debugPrintf("vp:%s, fp:%s\n", vp, fp);
-    }
-  }
-  attach_count = (attach_count + 1) % 2;
-
-  glAttachShader(program, shader);
 }
 
 void glGetShaderivHook(GLuint shader, GLenum pname, GLint *params) {
@@ -489,6 +406,7 @@ void glGetShaderivHook(GLuint shader, GLenum pname, GLint *params) {
 }
 
 void glCompileShaderHook(GLuint shader) {
+  return;
 }
 
 void glBindAttribLocationHook(GLuint prog, GLuint index, const GLchar *name) {
@@ -509,14 +427,13 @@ GLint glGetAttribLocationHook(GLuint prog, const GLchar *name) {
   return glGetAttribLocation(prog, new_name);
 }
 
-void glTexImage2DHook(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void * data) {
+void glTexImage2DHook(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void *data) {
   if (level == 0)
     glTexImage2D(target, level, internalformat, width, height, border, format, type, data);
 }
 
-void glCompressedTexImage2DHook(GLenum target, GLint level, GLenum format, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const void * data) {
-  // mips for PVRTC textures break when they're under 1 block in size
-  if (level == 0) // || ((width >= 4 && height >= 4) || (format != 0x8C01 && format != 0x8C02)))
+void glCompressedTexImage2DHook(GLenum target, GLint level, GLenum format, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const void *data) {
+  if (level == 0)
     glCompressedTexImage2D(target, level, format, width, height, border, imageSize, data);
 }
 
@@ -624,7 +541,7 @@ static DynLibFunction dynlib_functions[] = {
   // { "gettid", (uintptr_t)&gettid },
 
   { "glActiveTexture", (uintptr_t)&glActiveTexture },
-  { "glAttachShader", (uintptr_t)&glAttachShaderHook },
+  { "glAttachShader", (uintptr_t)&glAttachShader },
   { "glBindAttribLocation", (uintptr_t)&glBindAttribLocationHook },
   { "glBindBuffer", (uintptr_t)&glBindBuffer },
   { "glBindFramebuffer", (uintptr_t)&glBindFramebuffer },
@@ -711,8 +628,6 @@ static DynLibFunction dynlib_functions[] = {
   // { "nanosleep", (uintptr_t)&nanosleep },
   { "usleep", (uintptr_t)&usleep },
 
-  { "printf", (uintptr_t)&debugPrintf },
-
   { "pthread_attr_destroy", (uintptr_t)&ret0 },
   // { "pthread_attr_getschedparam", (uintptr_t)&pthread_attr_getschedparam },
   // { "pthread_attr_getstacksize", (uintptr_t)&pthread_attr_getstacksize },
@@ -744,6 +659,7 @@ static DynLibFunction dynlib_functions[] = {
   // { "pthread_setschedparam", (uintptr_t)&pthread_setschedparam },
   { "pthread_setspecific", (uintptr_t)&ret0 },
 
+  { "printf", (uintptr_t)&printf },
   { "putchar", (uintptr_t)&putchar },
   { "puts", (uintptr_t)&puts },
 
