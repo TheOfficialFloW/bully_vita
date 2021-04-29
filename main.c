@@ -759,9 +759,6 @@ int main(int argc, char *argv[]) {
   if (check_kubridge() < 0)
     fatal_error("Error kubridge.skprx is not installed.");
 
-  if (!file_exists("ur0:/data/libshacccg.suprx"))
-    fatal_error("Error libshacccg.suprx is not installed.");
-
   if (so_load(SO_PATH) < 0)
     fatal_error("Error could not load %s.", SO_PATH);
 
