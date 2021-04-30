@@ -441,8 +441,10 @@ void glTexImage2DHook(GLenum target, GLint level, GLint internalformat, GLsizei 
 }
 
 void glCompressedTexImage2DHook(GLenum target, GLint level, GLenum format, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const void *data) {
-  if (level == 0)
+  if (level) {
+    level--;
     glCompressedTexImage2D(target, level, format, width, height, border, imageSize, data);
+  }
 }
 
 static DynLibFunction dynlib_functions[] = {
