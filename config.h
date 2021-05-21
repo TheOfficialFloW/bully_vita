@@ -2,11 +2,16 @@
 #define __CONFIG_H__
 
 // #define DEBUG
+// #define HAVE_RAZOR
 
 #define LOAD_ADDRESS 0x98000000
 
 #define MEMORY_SCELIBC_MB 4
+#ifdef HAVE_RAZOR
+#define MEMORY_NEWLIB_MB 256
+#else
 #define MEMORY_NEWLIB_MB 112
+#endif
 #define MEMORY_VITAGL_THRESHOLD_MB 8
 
 #define DATA_PATH "ux0:data/Bully"
