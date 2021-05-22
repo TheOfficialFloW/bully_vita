@@ -433,6 +433,12 @@ void glTexImage2DHook(GLenum target, GLint level, GLint internalformat, GLsizei 
     glTexImage2D(target, level, internalformat, width, height, border, format, type, data);
 }
 
+void glCompressedTexImage2DHook(GLenum target, GLint level, GLenum format, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const void * data) {
+  // mips for PVRTC textures break when they're under 1 block in size
+  if (level == 0 || ((width >= 4 && height >= 4) || (format != 0x8C01 && format != 0x8C02)))
+    glCompressedTexImage2D(target, level, format, width, height, border, imageSize, data);
+}
+
 static DynLibFunction dynlib_functions[] = {
   { "__android_log_assert", (uintptr_t)&__android_log_assert },
   { "__android_log_print", (uintptr_t)&__android_log_print },
@@ -552,7 +558,7 @@ static DynLibFunction dynlib_functions[] = {
   { "glClearStencil", (uintptr_t)&glClearStencil },
   { "glColorMask", (uintptr_t)&glColorMask },
   { "glCompileShader", (uintptr_t)&glCompileShaderHook },
-  { "glCompressedTexImage2D", (uintptr_t)&glCompressedTexImage2D },
+  { "glCompressedTexImage2D", (uintptr_t)&glCompressedTexImage2DHook },
   { "glCompressedTexSubImage2D", (uintptr_t)&ret0 }, // TODO
   { "glCreateProgram", (uintptr_t)&glCreateProgram },
   { "glCreateShader", (uintptr_t)&glCreateShader },
