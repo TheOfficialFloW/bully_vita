@@ -6,13 +6,6 @@
  * of the MIT license.  See the LICENSE file for details.
  */
 
-/*
-  TODO:
-  - support mipmaps (memory constraint)
-  - remove detail textures
-  - higher resolution (clarity)
-*/
-
 #include <psp2/io/dirent.h>
 #include <psp2/io/fcntl.h>
 #include <psp2/kernel/clib.h>
@@ -779,7 +772,6 @@ int main(int argc, char *argv[]) {
     fatal_error("Error could not initialize fios.");
 
   vglEnableRuntimeShaderCompiler(GL_FALSE);
-  vglSetParamBufferSize(2 * 1024 * 1024);
   vglInitExtended(0, SCREEN_W, SCREEN_H, MEMORY_VITAGL_THRESHOLD_MB * 1024 * 1024, SCE_GXM_MULTISAMPLE_2X);
   vglUseVram(GL_TRUE);
 
