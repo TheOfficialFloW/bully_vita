@@ -10,7 +10,7 @@
 #ifdef HAVE_RAZOR
 #define MEMORY_NEWLIB_MB 256
 #else
-#define MEMORY_NEWLIB_MB 112
+#define MEMORY_NEWLIB_MB 128
 #endif
 #define MEMORY_VITAGL_THRESHOLD_MB 8
 

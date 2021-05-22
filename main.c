@@ -232,11 +232,11 @@ void *OS_ThreadLaunch(int (* func)(), void *arg, int cpu, char *name, int unused
   } else if (strcmp(name, "RenderThread") == 0) {
     vita_priority = 64;
     vita_affinity = 0x20000;
-  } else if (strcmp(name, "Sound") == 0) {
-    vita_priority = 65;
-    vita_affinity = 0x20000;
   } else if (strcmp(name, "CDStreamThread") == 0) {
     vita_priority = 65;
+    vita_affinity = 0x40000;
+  } else if (strcmp(name, "Sound") == 0) {
+    vita_priority = 66;
     vita_affinity = 0x40000;
   } else {
     debugPrintf("Error unknown thread %s\n", name);
