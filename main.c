@@ -411,19 +411,19 @@ void glCompileShaderHook(GLuint shader) {
 }
 
 void glBindAttribLocationHook(GLuint prog, GLuint index, const GLchar *name) {
-  char new_name[128];
+  char new_name[64];
   snprintf(new_name, sizeof(new_name), "input._%s", name);
   glBindAttribLocation(prog, index, new_name);
 }
 
 GLint glGetUniformLocationHook(GLuint prog, const GLchar *name) {
-  char new_name[128];
+  char new_name[64];
   snprintf(new_name, sizeof(new_name), "_%s", name);
   return glGetUniformLocation(prog, new_name);
 }
 
 GLint glGetAttribLocationHook(GLuint prog, const GLchar *name) {
-  char new_name[128];
+  char new_name[64];
   snprintf(new_name, sizeof(new_name), "input._%s", name);
   return glGetAttribLocation(prog, new_name);
 }
@@ -431,13 +431,6 @@ GLint glGetAttribLocationHook(GLuint prog, const GLchar *name) {
 void glTexImage2DHook(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void *data) {
   if (level == 0)
     glTexImage2D(target, level, internalformat, width, height, border, format, type, data);
-}
-
-void glCompressedTexImage2DHook(GLenum target, GLint level, GLenum format, GLsizei width, GLsizei height, GLint border, GLsizei imageSize, const void *data) {
-  if (level) {
-    level--;
-    glCompressedTexImage2D(target, level, format, width, height, border, imageSize, data);
-  }
 }
 
 static DynLibFunction dynlib_functions[] = {
@@ -559,7 +552,7 @@ static DynLibFunction dynlib_functions[] = {
   { "glClearStencil", (uintptr_t)&glClearStencil },
   { "glColorMask", (uintptr_t)&glColorMask },
   { "glCompileShader", (uintptr_t)&glCompileShaderHook },
-  { "glCompressedTexImage2D", (uintptr_t)&glCompressedTexImage2DHook },
+  { "glCompressedTexImage2D", (uintptr_t)&glCompressedTexImage2D },
   { "glCompressedTexSubImage2D", (uintptr_t)&ret0 }, // TODO
   { "glCreateProgram", (uintptr_t)&glCreateProgram },
   { "glCreateShader", (uintptr_t)&glCreateShader },
@@ -772,7 +765,7 @@ int main(int argc, char *argv[]) {
     fatal_error("Error could not initialize fios.");
 
   vglEnableRuntimeShaderCompiler(GL_FALSE);
-  vglInitExtended(0, SCREEN_W, SCREEN_H, MEMORY_VITAGL_THRESHOLD_MB * 1024 * 1024, SCE_GXM_MULTISAMPLE_2X);
+  vglInitExtended(0, SCREEN_W, SCREEN_H, MEMORY_VITAGL_THRESHOLD_MB * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
   vglUseVram(GL_TRUE);
 
   jni_load();
