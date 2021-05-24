@@ -59,7 +59,7 @@ int _newlib_heap_size_user = MEMORY_NEWLIB_MB * 1024 * 1024;
 unsigned int _oal_thread_priority = 64;
 unsigned int _oal_thread_affinity = 0x10000;
 
-int has_capunlocker = 0;
+int capunlocker_enabled = 0;
 
 SceTouchPanelInfo panelInfoFront, panelInfoBack;
 
@@ -92,39 +92,19 @@ int debugPrintf(char *text, ...) {
   return 0;
 }
 
-void __android_log_assert(const char *cond, const char *tag, const char *fmt, ...) {
-  va_list list;
-  char string[512];
-
-  va_start(list, fmt);
-  vsprintf(string, fmt, list);
-  va_end(list);
-
-  debugPrintf("[LOG] %s %s: %s\n", cond, tag, string);
+int __android_log_assert(const char *cond, const char *tag, const char *fmt, ...) {
+  return 0;
 }
 
 int __android_log_print(int prio, const char *tag, const char *fmt, ...) {
-  va_list list;
-  char string[512];
-
-  va_start(list, fmt);
-  vsprintf(string, fmt, list);
-  va_end(list);
-
-  debugPrintf("[LOG] %s: %s\n", tag, string);
-
   return 0;
 }
 
 int __android_log_vprint(int prio, const char *tag, const char *fmt, va_list ap) {
-  char string[512];
-  vsprintf(string, fmt, ap);
-  debugPrintf("[LOG] %s: %s\n", tag, string);
   return 0;
 }
 
 int __android_log_write(int prio, const char *tag, const char *text) {
-  debugPrintf("[LOG] %s: %s\n", tag, text);
   return 0;
 }
 
@@ -231,7 +211,7 @@ void *OS_ThreadLaunch(int (* func)(), void *arg, int cpu, char *name, int unused
   int vita_priority;
   int vita_affinity;
 
-  if (has_capunlocker) {
+  if (capunlocker_enabled) {
     if (strcmp(name, "Sound") == 0) {
       vita_priority = 65;
       vita_affinity = 0x10000;
@@ -245,7 +225,7 @@ void *OS_ThreadLaunch(int (* func)(), void *arg, int cpu, char *name, int unused
       vita_priority = 64;
       vita_affinity = 0x80000;
     } else {
-      debugPrintf("Error unknown thread %s\n", name);
+      fatal_error("Error unknown thread %s\n", name);
       return NULL;
     }
   } else {
@@ -262,7 +242,7 @@ void *OS_ThreadLaunch(int (* func)(), void *arg, int cpu, char *name, int unused
       vita_priority = 65;
       vita_affinity = 0x40000;
     } else {
-      debugPrintf("Error unknown thread %s\n", name);
+      fatal_error("Error unknown thread %s\n", name);
       return NULL;
     }
   }
@@ -784,7 +764,7 @@ int main(int argc, char *argv[]) {
 
   sceIoMkdir(GLSL_PATH, 0777);
 
-  has_capunlocker = check_capunlocker();
+  capunlocker_enabled = check_capunlocker() >= 0;
 
   if (check_kubridge() < 0)
     fatal_error("Error kubridge.skprx is not installed.");
