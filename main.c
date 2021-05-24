@@ -56,6 +56,11 @@
 int sceLibcHeapSize = MEMORY_SCELIBC_MB * 1024 * 1024;
 int _newlib_heap_size_user = MEMORY_NEWLIB_MB * 1024 * 1024;
 
+unsigned int _oal_thread_priority = 64;
+unsigned int _oal_thread_affinity = 0x10000;
+
+int has_capunlocker = 0;
+
 SceTouchPanelInfo panelInfoFront, panelInfoBack;
 
 void *__wrap_memcpy(void *dest, const void *src, size_t n) {
@@ -226,21 +231,40 @@ void *OS_ThreadLaunch(int (* func)(), void *arg, int cpu, char *name, int unused
   int vita_priority;
   int vita_affinity;
 
-  if (strcmp(name, "GameMain") == 0) {
-    vita_priority = 65;
-    vita_affinity = 0x10000;
-  } else if (strcmp(name, "RenderThread") == 0) {
-    vita_priority = 64;
-    vita_affinity = 0x20000;
-  } else if (strcmp(name, "CDStreamThread") == 0) {
-    vita_priority = 65;
-    vita_affinity = 0x40000;
-  } else if (strcmp(name, "Sound") == 0) {
-    vita_priority = 66;
-    vita_affinity = 0x40000;
+  if (has_capunlocker) {
+    if (strcmp(name, "Sound") == 0) {
+      vita_priority = 65;
+      vita_affinity = 0x10000;
+    } else if (strcmp(name, "GameMain") == 0) {
+      vita_priority = 64;
+      vita_affinity = 0x20000;
+    } else if (strcmp(name, "CDStreamThread") == 0) {
+      vita_priority = 65;
+      vita_affinity = 0x40000;
+    } else if (strcmp(name, "RenderThread") == 0) {
+      vita_priority = 64;
+      vita_affinity = 0x80000;
+    } else {
+      debugPrintf("Error unknown thread %s\n", name);
+      return NULL;
+    }
   } else {
-    debugPrintf("Error unknown thread %s\n", name);
-    return NULL;
+    if (strcmp(name, "GameMain") == 0) {
+      vita_priority = 65;
+      vita_affinity = 0x10000;
+    } else if (strcmp(name, "RenderThread") == 0) {
+      vita_priority = 64;
+      vita_affinity = 0x20000;
+    } else if (strcmp(name, "Sound") == 0) {
+      vita_priority = 65;
+      vita_affinity = 0x20000;
+    } else if (strcmp(name, "CDStreamThread") == 0) {
+      vita_priority = 65;
+      vita_affinity = 0x40000;
+    } else {
+      debugPrintf("Error unknown thread %s\n", name);
+      return NULL;
+    }
   }
 
   SceUID thid = sceKernelCreateThread(name, (SceKernelThreadEntry)thread_stub, vita_priority, 128 * 1024, 0, vita_affinity, NULL);
@@ -373,6 +397,22 @@ void glShaderSourceHook(GLuint shader, GLsizei count, const GLchar **string, con
   snprintf(gxp_path, sizeof(gxp_path), "%s/%s.gxp", GXP_PATH, sha_name);
 
   FILE *file = sceLibcBridge_fopen(gxp_path, "rb");
+  if (!file) {
+    debugPrintf("Could not find %s\n", gxp_path);
+
+    char glsl_path[128];
+    snprintf(glsl_path, sizeof(glsl_path), "%s/%s.glsl", GLSL_PATH, sha_name);
+
+    file = sceLibcBridge_fopen(glsl_path, "w");
+    if (file) {
+      sceLibcBridge_fwrite(*string, 1, *length, file);
+      sceLibcBridge_fclose(file);
+    }
+
+    snprintf(gxp_path, sizeof(gxp_path), "%s/%s.gxp", GXP_PATH, "9349e41c5fad90529f8aa627f5ad9ceeb0b75c7c");
+    file = sceLibcBridge_fopen(gxp_path, "rb");
+  }
+
   if (file) {
     size_t shaderSize;
     void *shaderBuf;
@@ -388,17 +428,6 @@ void glShaderSourceHook(GLuint shader, GLsizei count, const GLchar **string, con
     glShaderBinary(1, &shader, 0, shaderBuf, shaderSize);
 
     free(shaderBuf);
-  } else {
-    debugPrintf("Could not find %s\n", gxp_path);
-
-    char glsl_path[128];
-    snprintf(glsl_path, sizeof(glsl_path), "%s/%s.glsl", GLSL_PATH, sha_name);
-
-    file = sceLibcBridge_fopen(glsl_path, "w");
-    if (file) {
-      sceLibcBridge_fwrite(*string, 1, *length, file);
-      sceLibcBridge_fclose(file);
-    }
   }
 }
 
@@ -723,6 +752,11 @@ static DynLibFunction dynlib_functions[] = {
   { "wmemset", (uintptr_t)&wmemset },
 };
 
+int check_capunlocker(void) {
+  int search_unk[2];
+  return _vshKernelSearchModuleByName("CapUnlocker", search_unk);
+}
+
 int check_kubridge(void) {
   int search_unk[2];
   return _vshKernelSearchModuleByName("kubridge", search_unk);
@@ -749,6 +783,8 @@ int main(int argc, char *argv[]) {
   scePowerSetGpuXbarClockFrequency(166);
 
   sceIoMkdir(GLSL_PATH, 0777);
+
+  has_capunlocker = check_capunlocker();
 
   if (check_kubridge() < 0)
     fatal_error("Error kubridge.skprx is not installed.");

@@ -21,7 +21,7 @@ In order to properly install the game, you'll have to follow these steps precise
 **Note** Don't install fd_fix.skprx if you're using repatch plugin
 
 - **Optional**: Install [PSVshell](https://github.com/Electry/PSVshell/releases) to overclock your device to 500Mhz.
-- Install `libshacccg.suprx`, if you don't have it already, by following [this guide](https://samilops2.gitbook.io/vita-troubleshooting-guide/shader-compiler/extract-libshacccg.suprx).
+- **Optional**: Install [CapUnlocker](https://github.com/GrapheneCt/CapUnlocker/releases) to use the 4th core.
 - Obtain your copy of *Bully: Anniversary Edition* legally for Android in form of an `.apk` file and one or more `.obb` files (usually `main.11.com.rockstargames.bully.obb` and `patch.11.com.rockstargames.bully.obb` located inside the `/sdcard/android/obb/com.rockstargames.bully/`) folder. [You can get all the required files directly from your phone](https://stackoverflow.com/questions/11012976/how-do-i-get-the-apk-of-an-installed-app-without-root-access) or by using an apk extractor you can find in the play store. The apk can be extracted with whatever Zip extractor you prefer (eg: WinZip, WinRar, etc...) since apk is basically a zip file. You can rename `.apk` to `.zip` to open them with your default zip extractor.
 - Open the apk with your zip explorer, extract the `assets` folder from your `.apk` file to `ux0:data` and rename it to `Bully`. The result would be `ux0:data/Bully/`
 - Still in the apk, extract the file `libBully.so` from the `lib/armeabi-v7a` folder to `ux0:data/Bully`. 
@@ -82,7 +82,7 @@ Additionally, you'll need these libraries to be compiled as well with `-mfloat-a
 - [vitaGL](https://github.com/Rinnegatamante/vitaGL)
 
   - ````bash
-    make HAVE_SBRK=1 SOFTFP_ABI=1 UNPURE_TEXTURES=1 install
+    make HAVE_SBRK=1 SOFTFP_ABI=1 UNPURE_TEXTURES=1 CIRCULAR_VERTEX_POOL=1 install
     ````
 
 Finally, in the folder of `bully_vita`, install SceLibc stubs using:

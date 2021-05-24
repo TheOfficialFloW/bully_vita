@@ -15,7 +15,7 @@
 #include "fios.h"
 #include "so_util.h"
 
-#define MAX_PATH_LENGTH 256
+#define MAX_PATH_LENGTH 128
 #define RAMCACHEBLOCKSIZE (64 * 1024)
 #define RAMCACHEBLOCKNUM 32
 
