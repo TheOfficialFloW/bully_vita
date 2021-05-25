@@ -25,10 +25,7 @@ In order to properly install the game, you'll have to follow these steps precise
 - Obtain your copy of *Bully: Anniversary Edition* legally for Android in form of an `.apk` file and one or more `.obb` files (usually `main.11.com.rockstargames.bully.obb` and `patch.11.com.rockstargames.bully.obb` located inside the `/sdcard/android/obb/com.rockstargames.bully/`) folder. [You can get all the required files directly from your phone](https://stackoverflow.com/questions/11012976/how-do-i-get-the-apk-of-an-installed-app-without-root-access) or by using an apk extractor you can find in the play store. The apk can be extracted with whatever Zip extractor you prefer (eg: WinZip, WinRar, etc...) since apk is basically a zip file. You can rename `.apk` to `.zip` to open them with your default zip extractor.
 - Open the apk with your zip explorer, extract the `assets` folder from your `.apk` file to `ux0:data` and rename it to `Bully`. The result would be `ux0:data/Bully/`
 - Still in the apk, extract the file `libBully.so` from the `lib/armeabi-v7a` folder to `ux0:data/Bully`. 
-- Create the folder `ux0:data/Bully/Android` and move:
-  - `ux0:data/Bully/main.11.com.rockstargames.bully.obb.idx` to `ux0:data/Bully/Android/main.obb.idx`
-  - `ux0:data/Bully/patch.11.com.rockstargames.bully.obb.idx` to `ux0:data/Bully/Android/patch.obb.idx`
-- Copy `main.11.com.rockstargames.bully.obb` to `ux0:data/Bully/Android/main.obb` and `patch.11.com.rockstargames.bully.obb` to `ux0:data/Bully/Android/patch.obb`.
+- Create the folder `ux0:data/Bully/Android` and copy `main.11.com.rockstargames.bully.obb` to `ux0:data/Bully/Android/main.obb` and `patch.11.com.rockstargames.bully.obb` to `ux0:data/Bully/Android/patch.obb`.
 - Install [Bully.vpk](https://github.com/TheOfficialFloW/bully_vita/releases/download/v1.0/Bully.vpk) on your *PS Vita*.
 
 ## Build Instructions (For Developers)
@@ -82,7 +79,7 @@ Additionally, you'll need these libraries to be compiled as well with `-mfloat-a
 - [vitaGL](https://github.com/Rinnegatamante/vitaGL)
 
   - ````bash
-    make HAVE_SBRK=1 SOFTFP_ABI=1 UNPURE_TEXTURES=1 CIRCULAR_VERTEX_POOL=1 install
+    make HAVE_SBRK=1 SOFTFP_ABI=1 UNPURE_TEXTURES=1 install
     ````
 
 Finally, in the folder of `bully_vita`, install SceLibc stubs using:

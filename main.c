@@ -46,7 +46,6 @@
 #include "fios.h"
 #include "so_util.h"
 #include "jni_patch.h"
-#include "mpg123_patch.h"
 #include "openal_patch.h"
 
 #include "sha1.h"
@@ -97,6 +96,15 @@ int __android_log_assert(const char *cond, const char *tag, const char *fmt, ...
 }
 
 int __android_log_print(int prio, const char *tag, const char *fmt, ...) {
+  va_list list;
+  char string[512];
+
+  va_start(list, fmt);
+  vsprintf(string, fmt, list);
+  va_end(list);
+
+  debugPrintf("[LOG] %s: %s\n", tag, string);
+
   return 0;
 }
 
@@ -273,6 +281,63 @@ void *TouchSense__TouchSense(void *this) {
   return this;
 }
 
+typedef struct {
+  uint32_t dataOffset;
+  uint32_t dataSize;
+  uint16_t nameLength;
+  char name[0];
+} __attribute__((__packed__)) IDXEntry;
+
+typedef struct {
+  uint32_t dataOffset;
+  uint32_t dataSize;
+  char *name;
+} ZIPEntry;
+
+typedef struct {
+  void *vtable;
+  uint32_t unk4;
+  uint32_t numEntries;
+  ZIPEntry *entries;
+  char file[256];
+  uint32_t unk110;
+  uint32_t unk114;
+} ZIPFile;
+
+int (* ZIPFile__EntryCompare)(ZIPEntry *a, ZIPEntry *b);
+
+void ZIPFile__SortEntries(ZIPFile *this) {
+  if (this->numEntries > 1) {
+    int unsorted = 0;
+    for (int i = 0; i < this->numEntries - 1; i++) {
+      if (ZIPFile__EntryCompare(&this->entries[i], &this->entries[i + 1]) > 0) {
+        unsorted = 1;
+        break;
+      }
+    }
+
+    if (unsorted)
+      qsort(this->entries, this->numEntries, sizeof(ZIPEntry), (__compar_fn_t)ZIPFile__EntryCompare);
+  }
+
+  char idx_path[512];
+  snprintf(idx_path, sizeof(idx_path), "%s%s.idx", DATA_PATH, this->file);
+
+  FILE *file = sceLibcBridge_fopen(idx_path, "w");
+  if (file) {
+    sceLibcBridge_fwrite(&this->numEntries, 1, sizeof(uint32_t), file);
+    for (int i = 0; i < this->numEntries; i++) {
+      IDXEntry entry;
+      entry.dataOffset = this->entries[i].dataOffset;
+      entry.dataSize = this->entries[i].dataSize;
+      entry.nameLength = strlen(this->entries[i].name);
+      sceLibcBridge_fwrite(&entry, 1, sizeof(IDXEntry), file);
+      sceLibcBridge_fwrite(this->entries[i].name, 1, entry.nameLength, file);
+    }
+    sceLibcBridge_fclose(file);
+  }
+}
+
 extern void *__cxa_guard_acquire;
 extern void *__cxa_guard_release;
 
@@ -302,7 +367,9 @@ void patch_game(void) {
   hook_thumb(so_find_addr("_ZN10TouchSense28startContinuousBuiltinEffectEiiii"), (uintptr_t)ret0);
   hook_thumb(so_find_addr("_ZN10TouchSense25playBuiltinEffectInternalEii"), (uintptr_t)ret0);
   hook_thumb(so_find_addr("_ZN10TouchSense17playBuiltinEffectEiiii"), (uintptr_t)ret0);
-  hook_thumb(so_find_addr("_ZN10TouchSense11loadEffectsEv"), (uintptr_t)ret0);
+
+  ZIPFile__EntryCompare = (void *)so_find_addr("_ZN7ZIPFile12EntryCompareEPKvS1_");
+  hook_thumb(so_find_addr("_ZN7ZIPFile11SortEntriesEv"), (uintptr_t)ZIPFile__SortEntries);
 }
 
 extern void *__cxa_atexit;
@@ -469,6 +536,8 @@ static DynLibFunction dynlib_functions[] = {
   { "AAsset_seek", (uintptr_t)&ret0 },
   { "AAssetManager_fromJava", (uintptr_t)&ret0 },
   { "AAssetManager_open", (uintptr_t)&ret0 },
+
+  { "touchsensesdk_addResource", (uintptr_t)&ret0 },
 
   { "abort", (uintptr_t)&abort },
   { "exit", (uintptr_t)&exit },
@@ -775,7 +844,6 @@ int main(int argc, char *argv[]) {
   so_relocate();
   so_resolve(dynlib_functions, sizeof(dynlib_functions) / sizeof(DynLibFunction), 1);
 
-  patch_mpg123();
   patch_openal();
   patch_game();
   so_flush_caches();
