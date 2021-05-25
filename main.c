@@ -45,6 +45,7 @@
 #include "dialog.h"
 #include "fios.h"
 #include "so_util.h"
+#include "movie.h"
 #include "jni_patch.h"
 #include "openal_patch.h"
 
@@ -139,6 +140,7 @@ int OS_ScreenGetWidth(void) {
 }
 
 int ProcessEvents(void) {
+  movie_draw_frame();
   return 0; // 1 is exit!
 }
 
@@ -919,6 +921,7 @@ int main(int argc, char *argv[]) {
 
   patch_openal();
   patch_game();
+  patch_movie();
   so_flush_caches();
 
   so_execute_init_array();
@@ -928,8 +931,10 @@ int main(int argc, char *argv[]) {
     fatal_error("Error could not initialize fios.");
 
   vglEnableRuntimeShaderCompiler(GL_FALSE);
-  vglInitExtended(0, SCREEN_W, SCREEN_H, MEMORY_VITAGL_THRESHOLD_MB * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
+  vglInitWithCustomThreshold(0, SCREEN_W, SCREEN_H, MEMORY_VITAGL_THRESHOLD_MB * 1024 * 1024, 256 * 1024, 32 * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
   vglUseVram(GL_TRUE);
+  
+  movie_setup_player();
 
   jni_load();
 
