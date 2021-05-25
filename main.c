@@ -515,6 +515,28 @@ void glCompressedTexImage2DHook(GLenum target, GLint level, GLenum format, GLsiz
     glCompressedTexImage2D(target, level, format, width, height, border, imageSize, data);
 }
 
+extern void *__aeabi_dcmplt;
+extern void *__aeabi_dmul;
+extern void *__aeabi_dsub;
+extern void *__aeabi_f2d;
+extern void *__aeabi_fcmplt;
+extern void *__aeabi_idiv;
+extern void *__aeabi_idivmod;
+extern void *__aeabi_l2d;
+extern void *__aeabi_l2f;
+extern void *__aeabi_ui2d;
+extern void *__aeabi_ldiv0;
+extern void *__aeabi_uidiv;
+extern void *__aeabi_uidivmod;
+extern void *__aeabi_ul2d;
+extern void *__aeabi_ul2f;
+extern void *__aeabi_uldivmod;
+
+extern void *__gnu_ldivmod_helper;
+
+static FILE *stderr_fake;
+static FILE *stdin_fake;
+
 static DynLibFunction dynlib_functions[] = {
   { "__android_log_assert", (uintptr_t)&__android_log_assert },
   { "__android_log_print", (uintptr_t)&__android_log_print },
@@ -799,6 +821,49 @@ static DynLibFunction dynlib_functions[] = {
   { "wmemcpy", (uintptr_t)&wmemcpy },
   { "wmemmove", (uintptr_t)&wmemmove },
   { "wmemset", (uintptr_t)&wmemset },
+
+  // 1.0.0.18 imports
+
+  { "__aeabi_dcmplt", (uintptr_t)&__aeabi_dcmplt },
+  { "__aeabi_dmul", (uintptr_t)&__aeabi_dmul },
+  { "__aeabi_dsub", (uintptr_t)&__aeabi_dsub },
+  { "__aeabi_f2d", (uintptr_t)&__aeabi_f2d },
+  { "__aeabi_fcmplt", (uintptr_t)&__aeabi_fcmplt },
+  { "__aeabi_idiv", (uintptr_t)&__aeabi_idiv },
+  { "__aeabi_idivmod", (uintptr_t)&__aeabi_idivmod },
+  { "__aeabi_l2d", (uintptr_t)&__aeabi_l2d },
+  { "__aeabi_l2f", (uintptr_t)&__aeabi_l2f },
+  { "__aeabi_ldiv0", (uintptr_t)&__aeabi_ldiv0 },
+  { "__aeabi_ui2d", (uintptr_t)&__aeabi_ui2d },
+  { "__aeabi_uidiv", (uintptr_t)&__aeabi_uidiv },
+  { "__aeabi_uidivmod", (uintptr_t)&__aeabi_uidivmod },
+  { "__aeabi_ul2d", (uintptr_t)&__aeabi_ul2d },
+  { "__aeabi_ul2f", (uintptr_t)&__aeabi_ul2f },
+  { "__aeabi_uldivmod", (uintptr_t)&__aeabi_uldivmod },
+
+  { "__gnu_ldivmod_helper", (uintptr_t)&__gnu_ldivmod_helper },
+
+  { "islower", (uintptr_t)&islower },
+  { "isprint", (uintptr_t)&isprint },
+  { "isspace", (uintptr_t)&isspace },
+
+  { "atof", (uintptr_t)&atof },
+  { "tolower", (uintptr_t)&tolower },
+
+  { "rand", (uintptr_t)&rand },
+  { "srand", (uintptr_t)&srand },
+
+  { "feof", (uintptr_t)&feof },
+  { "ferror", (uintptr_t)&ferror },
+
+  { "sigemptyset", (uintptr_t)&ret0 },
+
+  { "clearerr", (uintptr_t)&clearerr },
+  { "stderr", (uintptr_t)&stderr_fake },
+  { "stdin", (uintptr_t)&stdin_fake },
+
+  { "stpcpy", (uintptr_t)&stpcpy },
+  { "strtof", (uintptr_t)&strtof },
 };
 
 int check_capunlocker(void) {
@@ -841,6 +906,8 @@ int main(int argc, char *argv[]) {
   if (so_load(SO_PATH) < 0)
     fatal_error("Error could not load %s.", SO_PATH);
 
+  stderr_fake = stderr;
+  stdin_fake = stdin;
   so_relocate();
   so_resolve(dynlib_functions, sizeof(dynlib_functions) / sizeof(DynLibFunction), 1);
 
