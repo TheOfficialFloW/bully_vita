@@ -90,11 +90,11 @@ int close_file_cb(void *jumpback) {
 
 int read_file_cb(void *jumpback, uint8_t *argBuffer, uint64_t argPosition, uint32_t argLength) {
   int res = OS_FileSetPosition(handle, (int)argPosition);
-  // debugPrintf("OS_FileSetPosition %llx: %d\n", argPosition, res);
+
   if (res != 0)
     return -1;
   res = OS_FileRead(handle, argBuffer, argLength);
-  // debugPrintf("OS_FileRead %x: %d\n", argLength, res);
+
   return (res == 0) ? argLength : -1;
 }
 
@@ -106,14 +106,12 @@ int audio_thread(SceSize args, void *ThisObject) {
   SceAvPlayerFrameInfo audioFrame;
   memset(&audioFrame, 0, sizeof(SceAvPlayerFrameInfo));
   
-  for (;;) {
-    while (sceAvPlayerIsActive(movie_player)) {
-      if (sceAvPlayerGetAudioData(movie_player, &audioFrame)) {
-        sceAudioOutSetConfig(audio_port, -1, /*audioFrame.details.audio.sampleRate*/-1, audioFrame.details.audio.channelCount == 1 ? SCE_AUDIO_OUT_MODE_MONO : SCE_AUDIO_OUT_MODE_STEREO);
-        sceAudioOutOutput(audio_port, audioFrame.pData);
-      } else {
-        sceKernelDelayThread(1000);
-      }
+  while (sceAvPlayerIsActive(movie_player)) {
+    if (sceAvPlayerGetAudioData(movie_player, &audioFrame)) {
+      sceAudioOutSetConfig(audio_port, -1, /*audioFrame.details.audio.sampleRate*/-1, audioFrame.details.audio.channelCount == 1 ? SCE_AUDIO_OUT_MODE_MONO : SCE_AUDIO_OUT_MODE_STEREO);
+      sceAudioOutOutput(audio_port, audioFrame.pData);
+    } else {
+      sceKernelDelayThread(1000);
     }
   }
 
@@ -124,21 +122,18 @@ int video_thread(SceSize args, void *ThisObject) {
   SceAvPlayerFrameInfo videoFrame;
   memset(&videoFrame, 0, sizeof(SceAvPlayerFrameInfo));
   
-  for (;;) {
-    while (sceAvPlayerIsActive(movie_player)) {
-      if (sceAvPlayerGetVideoData(movie_player, &videoFrame)) {
-        uint8_t next_movie_frame_idx = (movie_frame_idx + 1) % 2;
-        sceGxmTextureInitLinear(
-          movie_tex[next_movie_frame_idx],
-          videoFrame.pData,
-          SCE_GXM_TEXTURE_FORMAT_YVU420P2_CSC1,
-          videoFrame.details.video.width,
-          videoFrame.details.video.height, 0);
-        movie_frame_idx = next_movie_frame_idx;
-        player_state = PLAYER_ACTIVE;
-      }
+  while (sceAvPlayerIsActive(movie_player)) {
+    if (sceAvPlayerGetVideoData(movie_player, &videoFrame)) {
+      uint8_t next_movie_frame_idx = (movie_frame_idx + 1) % 2;
+      sceGxmTextureInitLinear(
+        movie_tex[next_movie_frame_idx],
+        videoFrame.pData,
+        SCE_GXM_TEXTURE_FORMAT_YVU420P2_CSC1,
+        videoFrame.details.video.width,
+        videoFrame.details.video.height, 0);
+      movie_frame_idx = next_movie_frame_idx;
+      player_state = PLAYER_ACTIVE;
     }
-    sceKernelDelayThread(1000);
   }
 
   return sceKernelExitDeleteThread(0);
@@ -240,18 +235,17 @@ int OS_MoviePlay(const char *file, int a2, int a3, float a4) {
     playerInit.autoStart = GL_TRUE;
 
     movie_player = sceAvPlayerInit(&playerInit);
-    sceAvPlayerAddSource(movie_player, file);
-
-    SceUID audioThreadId = sceKernelCreateThread("movie audio thread", audio_thread, 0x10000100 - 10, 0x4000, 0, 0, NULL);
-    sceKernelStartThread(audioThreadId, 0, NULL);
-
-    SceUID videoThreadId = sceKernelCreateThread("movie video thread", video_thread, 0x10000100 - 10, 0x4000, 0, 0, NULL);
-    sceKernelStartThread(videoThreadId, 0, NULL);
-  
-    player_state = PLAYER_READY;
-  } else {
-    sceAvPlayerAddSource(movie_player, file);
   }
+  
+  sceAvPlayerAddSource(movie_player, file);
+  
+  SceUID audioThreadId = sceKernelCreateThread("movie audio thread", audio_thread, 0x10000100 - 10, 0x4000, 0, 0, NULL);
+  sceKernelStartThread(audioThreadId, 0, NULL);
+
+  SceUID videoThreadId = sceKernelCreateThread("movie video thread", video_thread, 0x10000100 - 10, 0x4000, 0, 0, NULL);
+  sceKernelStartThread(videoThreadId, 0, NULL);
+
+  player_state = PLAYER_READY;
   
   return 0;
 }
