@@ -25,6 +25,7 @@ add_executable(Bully
   jni_patch.c
   openal_patch.c
   sha1.c
+  movie.c
 )
 
 target_link_libraries(Bully
@@ -41,6 +42,7 @@ target_link_libraries(Bully
   SceAppUtil_stub
   SceAudio_stub
   SceAudioIn_stub
+  SceAvPlayer_stub
   SceCtrl_stub
   SceCommonDialog_stub
   SceDisplay_stub
