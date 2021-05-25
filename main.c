@@ -338,6 +338,10 @@ void ZIPFile__SortEntries(ZIPFile *this) {
   }
 }
 
+int Application__Exit(void *this) {
+  return sceKernelExitProcess(0);
+}
+
 extern void *__cxa_guard_acquire;
 extern void *__cxa_guard_release;
 
@@ -370,6 +374,8 @@ void patch_game(void) {
 
   ZIPFile__EntryCompare = (void *)so_find_addr("_ZN7ZIPFile12EntryCompareEPKvS1_");
   hook_thumb(so_find_addr("_ZN7ZIPFile11SortEntriesEv"), (uintptr_t)ZIPFile__SortEntries);
+
+  hook_thumb(so_find_addr("_ZN11Application4ExitEv"), (uintptr_t)Application__Exit);
 }
 
 extern void *__cxa_atexit;
