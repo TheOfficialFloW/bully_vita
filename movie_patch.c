@@ -175,7 +175,8 @@ void movie_draw_frame(void) {
           SCE_GXM_TEXTURE_FORMAT_YVU420P2_CSC1,
           frame.details.video.width,
           frame.details.video.height, 0);
-
+        sceGxmTextureSetMinFilter(movie_tex[movie_frame_idx], SCE_GXM_TEXTURE_FILTER_LINEAR);
+        sceGxmTextureSetMagFilter(movie_tex[movie_frame_idx], SCE_GXM_TEXTURE_FILTER_LINEAR);
         glUseProgram(movie_prog);
         glBindTexture(GL_TEXTURE_2D, movie_frame[movie_frame_idx]);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -193,12 +194,13 @@ void movie_draw_frame(void) {
   }
 
   if (player_state == PLAYER_STOP) {
-    // TODO: clear screen
     sceAvPlayerStop(movie_player);
     sceKernelWaitThreadEnd(audio_thid, NULL, NULL);
     sceAvPlayerClose(movie_player);
     movie_audio_shutdown();
     player_state = PLAYER_INACTIVE;
+    glClear(GL_COLOR_BUFFER_BIT);
+    vglSwapBuffers(GL_FALSE);
   }
 }
 
