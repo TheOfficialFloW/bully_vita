@@ -23,9 +23,9 @@ add_executable(Bully
   fios.c
   so_util.c
   jni_patch.c
+  movie_patch.c
   openal_patch.c
   sha1.c
-  movie.c
 )
 
 target_link_libraries(Bully

@@ -1,4 +1,4 @@
-/* movie.c -- Video playback for movies
+/* movie_patch.c -- Video playback for movies
  *
  * Copyright (C) 2021 Andy Nguyen
  *
@@ -6,37 +6,18 @@
  * of the MIT license.  See the LICENSE file for details.
  */
 
-#include <psp2/io/dirent.h>
-#include <psp2/io/fcntl.h>
-#include <psp2/kernel/clib.h>
-#include <psp2/kernel/processmgr.h>
-#include <psp2/kernel/threadmgr.h>
-#include <psp2/appmgr.h>
-#include <psp2/apputil.h>
-#include <psp2/ctrl.h>
-#include <psp2/power.h>
-#include <psp2/rtc.h>
-#include <psp2/touch.h>
-#include <psp2/avplayer.h>
-#include <psp2/audioout.h>
-#include <psp2/sysmodule.h>
 #include <psp2/kernel/sysmem.h>
-#include <taihen.h>
-#include <kubridge.h>
-#include <vitashark.h>
+#include <psp2/kernel/threadmgr.h>
+#include <psp2/audioout.h>
+#include <psp2/avplayer.h>
+#include <psp2/sysmodule.h>
 #include <vitaGL.h>
 
 #include <malloc.h>
 #include <stdio.h>
-#include <stdarg.h>
-#include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-#include <wchar.h>
-#include <wctype.h>
 
 #include "so_util.h"
-#include "movie.h"
 
 #include "shaders/movie_f.h"
 #include "shaders/movie_v.h"
@@ -82,21 +63,17 @@ float movie_texcoord[8] = {
 };
 
 int open_file_cb(void *jumpback, const char *argFilename) {
-  return (OS_FileOpen(0, &handle, argFilename, 0) == 0) ? 0 : -1;
+  return OS_FileOpen(0, &handle, argFilename, 0) == 0 ? 0 : -1;
 }
 
 int close_file_cb(void *jumpback) {
-  return (OS_FileClose(handle) == 0) ? 0 : -1;
+  return OS_FileClose(handle) == 0 ? 0 : -1;
 }
 
 int read_file_cb(void *jumpback, uint8_t *argBuffer, uint64_t argPosition, uint32_t argLength) {
-  int res = OS_FileSetPosition(handle, (int)argPosition);
-
-  if (res != 0)
+  if (OS_FileSetPosition(handle, (int)argPosition) != 0)
     return -1;
-  res = OS_FileRead(handle, argBuffer, argLength);
-
-  return (res == 0) ? argLength : -1;
+  return OS_FileRead(handle, argBuffer, argLength) == 0 ? argLength : -1;
 }
 
 uint64_t size_file_cb(void *jumpback) {
@@ -106,7 +83,7 @@ uint64_t size_file_cb(void *jumpback) {
 int audio_thread(SceSize args, void *ThisObject) {
   SceAvPlayerFrameInfo audioFrame;
   memset(&audioFrame, 0, sizeof(SceAvPlayerFrameInfo));
-  
+
   while (sceAvPlayerIsActive(movie_player)) {
     if (sceAvPlayerGetAudioData(movie_player, &audioFrame)) {
       sceAudioOutSetConfig(audio_port, -1, /*audioFrame.details.audio.sampleRate*/-1, audioFrame.details.audio.channelCount == 1 ? SCE_AUDIO_OUT_MODE_MONO : SCE_AUDIO_OUT_MODE_STEREO);
@@ -115,7 +92,7 @@ int audio_thread(SceSize args, void *ThisObject) {
       sceKernelDelayThread(1000);
     }
   }
-  
+
   return sceKernelExitDeleteThread(0);
 }
 
@@ -134,11 +111,11 @@ void *gpu_alloc(void *p, uint32_t alignment, uint32_t size) {
   size = ALIGN_MEM(size, alignment);
   size = ALIGN_MEM(size, 1024 * 1024);
   SceUID memblock = sceKernelAllocMemBlock("Video Memblock", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_PHYCONT_NC_RW, size, NULL);
-  
+
   void *res;
   sceKernelGetMemBlockBase(memblock, &res);
   sceGxmMapMemory(res, size, (SceGxmMemoryAttribFlags)(SCE_GXM_MEMORY_ATTRIB_READ | SCE_GXM_MEMORY_ATTRIB_WRITE));
-  
+
   return res;
 }
 
@@ -151,34 +128,34 @@ void gpu_free(void *p, void *ptr) {
 
 void movie_draw_frame(void) {
   if (player_state == PLAYER_ACTIVE) {
-	if (sceAvPlayerIsActive(movie_player)) {
-      SceAvPlayerFrameInfo videoFrame;
-      if (sceAvPlayerGetVideoData(movie_player, &videoFrame)) {
-        movie_frame_idx = (movie_frame_idx + 1) % 2;
-        sceGxmTextureInitLinear(
-          movie_tex[movie_frame_idx],
-          videoFrame.pData,
-          SCE_GXM_TEXTURE_FORMAT_YVU420P2_CSC1,
-          videoFrame.details.video.width,
-          videoFrame.details.video.height, 0);
-        
-        glUseProgram(movie_prog);
-        glBindTexture(GL_TEXTURE_2D, movie_frame[movie_frame_idx]);
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-        glEnableVertexAttribArray(0);
-        glEnableVertexAttribArray(1);
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, &movie_pos[0]);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, &movie_texcoord[0]);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        vglSwapBuffers(GL_FALSE);
-      }
-    } else {
-      sceAvPlayerStop(movie_player);
-      sceKernelWaitThreadEnd(audio_thd, NULL, NULL);
-      sceAvPlayerClose(movie_player);
-      player_state = PLAYER_READY;
-	}
+    if (sceAvPlayerIsActive(movie_player)) {
+        SceAvPlayerFrameInfo videoFrame;
+        if (sceAvPlayerGetVideoData(movie_player, &videoFrame)) {
+          movie_frame_idx = (movie_frame_idx + 1) % 2;
+          sceGxmTextureInitLinear(
+            movie_tex[movie_frame_idx],
+            videoFrame.pData,
+            SCE_GXM_TEXTURE_FORMAT_YVU420P2_CSC1,
+            videoFrame.details.video.width,
+            videoFrame.details.video.height, 0);
+
+          glUseProgram(movie_prog);
+          glBindTexture(GL_TEXTURE_2D, movie_frame[movie_frame_idx]);
+          glBindBuffer(GL_ARRAY_BUFFER, 0);
+          glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+          glEnableVertexAttribArray(0);
+          glEnableVertexAttribArray(1);
+          glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, &movie_pos[0]);
+          glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, &movie_texcoord[0]);
+          glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+          vglSwapBuffers(GL_FALSE);
+        }
+      } else {
+        sceAvPlayerStop(movie_player);
+        sceKernelWaitThreadEnd(audio_thd, NULL, NULL);
+        sceAvPlayerClose(movie_player);
+        player_state = PLAYER_READY;
+    }
   }
 }
 
@@ -190,13 +167,13 @@ void movie_setup_player(void) {
     movie_tex[i] = vglGetGxmTexture(GL_TEXTURE_2D);
     vglFree(vglGetTexDataPointer(GL_TEXTURE_2D));
   }
-  
+
   movie_vs = glCreateShader(GL_VERTEX_SHADER);
   glShaderBinary(1, &movie_vs, 0, movie_v, size_movie_v);
-  
+
   movie_fs = glCreateShader(GL_FRAGMENT_SHADER);
   glShaderBinary(1, &movie_fs, 0, movie_f, size_movie_f);
-  
+
   movie_prog = glCreateProgram();
   glAttachShader(movie_prog, movie_vs);
   glAttachShader(movie_prog, movie_fs);
@@ -211,15 +188,15 @@ int OS_MoviePlay(const char *file, int a2, int a3, float a4) {
 
     audio_port = sceAudioOutOpenPort(SCE_AUDIO_OUT_PORT_TYPE_MAIN, 1024, 48000, SCE_AUDIO_OUT_MODE_STEREO);
     sceAudioOutSetConfig(audio_port, -1, -1, (SceAudioOutMode)-1);
-  
+
     // Setting audio channel volume
     int vol_stereo[] = {32767, 32767};
     sceAudioOutSetVolume(audio_port, (SceAudioOutChannelFlag)(SCE_AUDIO_VOLUME_FLAG_L_CH | SCE_AUDIO_VOLUME_FLAG_R_CH), vol_stereo);
   }
-    
+
   SceAvPlayerInitData playerInit;
   memset(&playerInit, 0, sizeof(SceAvPlayerInitData));
-  
+
   playerInit.memoryReplacement.allocate = mem_alloc;
   playerInit.memoryReplacement.deallocate = mem_free;
   playerInit.memoryReplacement.allocateTexture = gpu_alloc;
@@ -236,19 +213,15 @@ int OS_MoviePlay(const char *file, int a2, int a3, float a4) {
   playerInit.autoStart = GL_TRUE;
 
   movie_player = sceAvPlayerInit(&playerInit);
-  
+
   sceAvPlayerAddSource(movie_player, file);
-  
+
   audio_thd = sceKernelCreateThread("movie audio thread", audio_thread, 0x10000100 - 10, 0x4000, 0, 0, NULL);
   sceKernelStartThread(audio_thd, 0, NULL);
 
   player_state = PLAYER_ACTIVE;
-  
+
   return 0;
-}
-
-void OS_MovieSetSkippable(void) {
-
 }
 
 void OS_MovieStop(void) {
@@ -259,13 +232,16 @@ int OS_MovieIsPlaying(int *loops) {
   return (player_state == PLAYER_ACTIVE) && sceAvPlayerIsActive(movie_player);
 }
 
+void OS_MovieSetSkippable(void) {
+}
+
 void patch_movie(void) {
   OS_FileOpen = (void *)so_find_addr("_Z11OS_FileOpen14OSFileDataAreaPPvPKc16OSFileAccessType");
   OS_FileRead = (void *)so_find_addr("_Z11OS_FileReadPvS_i");
   OS_FileSetPosition = (void *)so_find_addr("_Z18OS_FileSetPositionPvi");
   OS_FileSize = (void *)so_find_addr("_Z11OS_FileSizePv");
   OS_FileClose = (void *)so_find_addr("_Z12OS_FileClosePv");
-  
+
   hook_thumb(so_find_addr("_Z12OS_MoviePlayPKcbbf"), (uintptr_t)OS_MoviePlay);
   hook_thumb(so_find_addr("_Z20OS_MovieSetSkippableb"), (uintptr_t)OS_MovieSetSkippable);
   hook_thumb(so_find_addr("_Z12OS_MovieStopv"), (uintptr_t)OS_MovieStop);

@@ -100,5 +100,4 @@ cmake .. && make
 - Rinnegatamante for porting the renderer using vitaGL and making various improvements to the port.
 - Freakler for providing LiveArea assets.
 - frangarcj, fgsfds and Bythos for graphics-related stuff.
-- CBPS/SonicMastr for PIB, which was used on earlier stages of development.
 - isage for the native audio backend for OpenAL-Soft.

@@ -45,8 +45,8 @@
 #include "dialog.h"
 #include "fios.h"
 #include "so_util.h"
-#include "movie.h"
 #include "jni_patch.h"
+#include "movie_patch.h"
 #include "openal_patch.h"
 
 #include "sha1.h"
