@@ -14,7 +14,7 @@ set(VITA_APP_NAME "Bully")
 set(VITA_TITLEID  "BULLY0000")
 set(VITA_MKSFOEX_FLAGS "-d ATTRIBUTE2=12")
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -Wl,-q,--wrap,memcpy,--wrap,memmove,--wrap,memset -Wall -O3 -mfloat-abi=softfp")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -Wl,-q,--wrap,memcpy,--wrap,memmove,--wrap,memset -Wall -O3 -mfloat-abi=softfp -ffast-math")
 set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -std=c++11")
 
 add_executable(Bully
@@ -24,6 +24,8 @@ add_executable(Bully
   so_util.c
   jni_patch.c
   movie_patch.c
+  stb_vorbis.c
+  stb_vorbis_patch.c
   openal_patch.c
   sha1.c
 )

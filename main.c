@@ -47,6 +47,7 @@
 #include "so_util.h"
 #include "jni_patch.h"
 #include "movie_patch.h"
+#include "stb_vorbis_patch.h"
 #include "openal_patch.h"
 
 #include "sha1.h"
@@ -919,6 +920,7 @@ int main(int argc, char *argv[]) {
   so_relocate();
   so_resolve(dynlib_functions, sizeof(dynlib_functions) / sizeof(DynLibFunction), 1);
 
+  patch_stb_vorbis();
   patch_openal();
   patch_game();
   patch_movie();
