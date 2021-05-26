@@ -65,6 +65,7 @@ GLuint movie_prog;
 int audio_port;
 SceAvPlayerHandle movie_player;
 void *handle = NULL;
+SceUID audio_thd;
 
 float movie_pos[8] = {
   -1.0f, 1.0f,
@@ -114,28 +115,7 @@ int audio_thread(SceSize args, void *ThisObject) {
       sceKernelDelayThread(1000);
     }
   }
-
-  return sceKernelExitDeleteThread(0);
-}
-
-int video_thread(SceSize args, void *ThisObject) {
-  SceAvPlayerFrameInfo videoFrame;
-  memset(&videoFrame, 0, sizeof(SceAvPlayerFrameInfo));
   
-  while (sceAvPlayerIsActive(movie_player)) {
-    if (sceAvPlayerGetVideoData(movie_player, &videoFrame)) {
-      uint8_t next_movie_frame_idx = (movie_frame_idx + 1) % 2;
-      sceGxmTextureInitLinear(
-        movie_tex[next_movie_frame_idx],
-        videoFrame.pData,
-        SCE_GXM_TEXTURE_FORMAT_YVU420P2_CSC1,
-        videoFrame.details.video.width,
-        videoFrame.details.video.height, 0);
-      movie_frame_idx = next_movie_frame_idx;
-      player_state = PLAYER_ACTIVE;
-    }
-  }
-
   return sceKernelExitDeleteThread(0);
 }
 
@@ -163,22 +143,42 @@ void *gpu_alloc(void *p, uint32_t alignment, uint32_t size) {
 }
 
 void gpu_free(void *p, void *ptr) {
+  glFinish();
   SceUID memblock = sceKernelFindMemBlockByAddr(ptr, 0);
+  sceGxmUnmapMemory(ptr);
   sceKernelFreeMemBlock(memblock);
 }
 
 void movie_draw_frame(void) {
   if (player_state == PLAYER_ACTIVE) {
-    glUseProgram(movie_prog);
-    glBindTexture(GL_TEXTURE_2D, movie_frame[movie_frame_idx]);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-    glEnableVertexAttribArray(0);
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, &movie_pos[0]);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, &movie_texcoord[0]);
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-    vglSwapBuffers(GL_FALSE);
+	if (sceAvPlayerIsActive(movie_player)) {
+      SceAvPlayerFrameInfo videoFrame;
+      if (sceAvPlayerGetVideoData(movie_player, &videoFrame)) {
+        movie_frame_idx = (movie_frame_idx + 1) % 2;
+        sceGxmTextureInitLinear(
+          movie_tex[movie_frame_idx],
+          videoFrame.pData,
+          SCE_GXM_TEXTURE_FORMAT_YVU420P2_CSC1,
+          videoFrame.details.video.width,
+          videoFrame.details.video.height, 0);
+        
+        glUseProgram(movie_prog);
+        glBindTexture(GL_TEXTURE_2D, movie_frame[movie_frame_idx]);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+        glEnableVertexAttribArray(0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, &movie_pos[0]);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, &movie_texcoord[0]);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        vglSwapBuffers(GL_FALSE);
+      }
+    } else {
+      sceAvPlayerStop(movie_player);
+      sceKernelWaitThreadEnd(audio_thd, NULL, NULL);
+      sceAvPlayerClose(movie_player);
+      player_state = PLAYER_READY;
+	}
   }
 }
 
@@ -215,37 +215,34 @@ int OS_MoviePlay(const char *file, int a2, int a3, float a4) {
     // Setting audio channel volume
     int vol_stereo[] = {32767, 32767};
     sceAudioOutSetVolume(audio_port, (SceAudioOutChannelFlag)(SCE_AUDIO_VOLUME_FLAG_L_CH | SCE_AUDIO_VOLUME_FLAG_R_CH), vol_stereo);
-
-    SceAvPlayerInitData playerInit;
-    memset(&playerInit, 0, sizeof(SceAvPlayerInitData));
-
-    playerInit.memoryReplacement.allocate = mem_alloc;
-    playerInit.memoryReplacement.deallocate = mem_free;
-    playerInit.memoryReplacement.allocateTexture = gpu_alloc;
-    playerInit.memoryReplacement.deallocateTexture = gpu_free;
-
-    playerInit.fileReplacement.objectPointer = NULL;
-    playerInit.fileReplacement.open = open_file_cb;
-    playerInit.fileReplacement.close = close_file_cb;
-    playerInit.fileReplacement.readOffset = read_file_cb;
-    playerInit.fileReplacement.size = size_file_cb;
-  
-    playerInit.basePriority = 0xA0;
-    playerInit.numOutputVideoFrameBuffers = 2;
-    playerInit.autoStart = GL_TRUE;
-
-    movie_player = sceAvPlayerInit(&playerInit);
   }
+    
+  SceAvPlayerInitData playerInit;
+  memset(&playerInit, 0, sizeof(SceAvPlayerInitData));
+  
+  playerInit.memoryReplacement.allocate = mem_alloc;
+  playerInit.memoryReplacement.deallocate = mem_free;
+  playerInit.memoryReplacement.allocateTexture = gpu_alloc;
+  playerInit.memoryReplacement.deallocateTexture = gpu_free;
+
+  playerInit.fileReplacement.objectPointer = NULL;
+  playerInit.fileReplacement.open = open_file_cb;
+  playerInit.fileReplacement.close = close_file_cb;
+  playerInit.fileReplacement.readOffset = read_file_cb;
+  playerInit.fileReplacement.size = size_file_cb;
+
+  playerInit.basePriority = 0xA0;
+  playerInit.numOutputVideoFrameBuffers = 2;
+  playerInit.autoStart = GL_TRUE;
+
+  movie_player = sceAvPlayerInit(&playerInit);
   
   sceAvPlayerAddSource(movie_player, file);
   
-  SceUID audioThreadId = sceKernelCreateThread("movie audio thread", audio_thread, 0x10000100 - 10, 0x4000, 0, 0, NULL);
-  sceKernelStartThread(audioThreadId, 0, NULL);
+  audio_thd = sceKernelCreateThread("movie audio thread", audio_thread, 0x10000100 - 10, 0x4000, 0, 0, NULL);
+  sceKernelStartThread(audio_thd, 0, NULL);
 
-  SceUID videoThreadId = sceKernelCreateThread("movie video thread", video_thread, 0x10000100 - 10, 0x4000, 0, 0, NULL);
-  sceKernelStartThread(videoThreadId, 0, NULL);
-
-  player_state = PLAYER_READY;
+  player_state = PLAYER_ACTIVE;
   
   return 0;
 }
@@ -255,12 +252,11 @@ void OS_MovieSetSkippable(void) {
 }
 
 void OS_MovieStop(void) {
-  sceAvPlayerStop(movie_player);
   player_state = PLAYER_READY;
 }
 
 int OS_MovieIsPlaying(int *loops) {
-  return player_state && sceAvPlayerIsActive(movie_player);
+  return (player_state == PLAYER_ACTIVE) && sceAvPlayerIsActive(movie_player);
 }
 
 void patch_movie(void) {
