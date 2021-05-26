@@ -1,5 +1,7 @@
 # Bully: Anniversary Edition Vita
 
+<p align="center"><img src="./screenshots/game.png"></p>
+
 This is a wrapper/port of *Bully: Anniversary Edition* for the *PS Vita*.
 
 The port works by loading the official Android ARMv7 executable in memory, resolving its imports with native functions and patching it in order to properly run.
