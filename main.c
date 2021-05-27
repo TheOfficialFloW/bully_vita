@@ -56,8 +56,8 @@
 int sceLibcHeapSize = MEMORY_SCELIBC_MB * 1024 * 1024;
 int _newlib_heap_size_user = MEMORY_NEWLIB_MB * 1024 * 1024;
 
-unsigned int _oal_thread_priority = 64;
-unsigned int _oal_thread_affinity = 0x10000;
+unsigned int _oal_thread_priority;
+unsigned int _oal_thread_affinity;
 
 int capunlocker_enabled = 0;
 
@@ -222,17 +222,17 @@ void *OS_ThreadLaunch(int (* func)(), void *arg, int cpu, char *name, int unused
   int vita_affinity;
 
   if (capunlocker_enabled) {
-    if (strcmp(name, "Sound") == 0) {
-      vita_priority = 65;
+    if (strcmp(name, "GameMain") == 0) {
+      vita_priority = 64;
       vita_affinity = 0x10000;
-    } else if (strcmp(name, "GameMain") == 0) {
+    } else if (strcmp(name, "RenderThread") == 0) {
       vita_priority = 64;
       vita_affinity = 0x20000;
     } else if (strcmp(name, "CDStreamThread") == 0) {
       vita_priority = 65;
       vita_affinity = 0x40000;
-    } else if (strcmp(name, "RenderThread") == 0) {
-      vita_priority = 64;
+    } else if (strcmp(name, "Sound") == 0) {
+      vita_priority = 65;
       vita_affinity = 0x80000;
     } else {
       fatal_error("Error unknown thread %s\n", name);
@@ -245,12 +245,12 @@ void *OS_ThreadLaunch(int (* func)(), void *arg, int cpu, char *name, int unused
     } else if (strcmp(name, "RenderThread") == 0) {
       vita_priority = 64;
       vita_affinity = 0x20000;
-    } else if (strcmp(name, "Sound") == 0) {
-      vita_priority = 65;
-      vita_affinity = 0x20000;
     } else if (strcmp(name, "CDStreamThread") == 0) {
       vita_priority = 65;
       vita_affinity = 0x40000;
+    } else if (strcmp(name, "Sound") == 0) {
+      vita_priority = 65;
+      vita_affinity = 0x20000;
     } else {
       fatal_error("Error unknown thread %s\n", name);
       return NULL;
@@ -907,6 +907,13 @@ int main(int argc, char *argv[]) {
   sceIoMkdir(GLSL_PATH, 0777);
 
   capunlocker_enabled = check_capunlocker() >= 0;
+  if (capunlocker_enabled) {
+    _oal_thread_priority = 64;
+    _oal_thread_affinity = 0x80000;
+  } else {
+    _oal_thread_priority = 64;
+    _oal_thread_affinity = 0x10000;
+  }
 
   if (check_kubridge() < 0)
     fatal_error("Error kubridge.skprx is not installed.");
@@ -933,7 +940,7 @@ int main(int argc, char *argv[]) {
   vglEnableRuntimeShaderCompiler(GL_FALSE);
   vglInitWithCustomThreshold(0, SCREEN_W, SCREEN_H, MEMORY_VITAGL_THRESHOLD_MB * 1024 * 1024, 256 * 1024, 32 * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
   vglUseVram(GL_TRUE);
-  
+
   movie_setup_player();
 
   jni_load();
