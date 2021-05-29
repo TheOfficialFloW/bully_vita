@@ -936,9 +936,11 @@ int main(int argc, char *argv[]) {
 
   if (fios_init() < 0)
     fatal_error("Error could not initialize fios.");
-
+  
+  movie_setup_memblocks();
+  
   vglEnableRuntimeShaderCompiler(GL_FALSE);
-  vglInitWithCustomThreshold(0, SCREEN_W, SCREEN_H, MEMORY_VITAGL_THRESHOLD_MB * 1024 * 1024, 256 * 1024, 32 * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
+  vglInitExtended(0, SCREEN_W, SCREEN_H, MEMORY_VITAGL_THRESHOLD_MB * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
   vglUseVram(GL_TRUE);
 
   movie_setup_player();

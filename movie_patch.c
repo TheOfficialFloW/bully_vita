@@ -49,6 +49,7 @@ GLuint movie_vs;
 GLuint movie_prog;
 
 SceUID audio_thid;
+void *movie_buffers[3];
 int audio_new;
 int audio_port;
 int audio_len;
@@ -98,25 +99,40 @@ void mem_free(void *p, void *ptr) {
 }
 
 void *gpu_alloc(void *p, uint32_t align, uint32_t size) {
-  if (align < FB_ALIGNMENT) {
-    align = FB_ALIGNMENT;
+  switch (size) {
+  case 0x2A3000:
+    sceGxmMapMemory(movie_buffers[0], 0x300000, (SceGxmMemoryAttribFlags)(SCE_GXM_MEMORY_ATTRIB_READ | SCE_GXM_MEMORY_ATTRIB_WRITE));
+    return movie_buffers[0];
+  case 0x100000:
+    sceGxmMapMemory(movie_buffers[1], 0x100000, (SceGxmMemoryAttribFlags)(SCE_GXM_MEMORY_ATTRIB_READ | SCE_GXM_MEMORY_ATTRIB_WRITE));
+    return movie_buffers[1];
+  case 0x1300000:
+    sceGxmMapMemory(movie_buffers[2], 0x1300000, (SceGxmMemoryAttribFlags)(SCE_GXM_MEMORY_ATTRIB_READ | SCE_GXM_MEMORY_ATTRIB_WRITE));
+    return movie_buffers[2];
+  default:
+    sceClibPrintf("invalid size (0x%08X)\n", size);
+	break;
   }
-  size = ALIGN_MEM(size, align);
-  size = ALIGN_MEM(size, 1024 * 1024);
-  SceUID memblock = sceKernelAllocMemBlock("Video Memblock", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_PHYCONT_NC_RW, size, NULL);
-
-  void *res;
-  sceKernelGetMemBlockBase(memblock, &res);
-  sceGxmMapMemory(res, size, (SceGxmMemoryAttribFlags)(SCE_GXM_MEMORY_ATTRIB_READ | SCE_GXM_MEMORY_ATTRIB_WRITE));
-
-  return res;
+  
+  return NULL;
 }
 
 void gpu_free(void *p, void *ptr) {
   glFinish();
-  SceUID memblock = sceKernelFindMemBlockByAddr(ptr, 0);
   sceGxmUnmapMemory(ptr);
-  sceKernelFreeMemBlock(memblock);
+}
+
+void *gpu_alloc_memblock(uint32_t size) {
+  SceUID blk = sceKernelAllocMemBlock("Movie Memblock", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_PHYCONT_NC_RW, size, NULL);
+  void *res;
+  sceKernelGetMemBlockBase(blk, &res);
+  return res;
+}
+
+void movie_setup_memblocks(void) {
+  movie_buffers[0] = gpu_alloc_memblock(0x300000);
+  movie_buffers[1] = gpu_alloc_memblock(0x100000);
+  movie_buffers[2] = gpu_alloc_memblock(0x1300000);
 }
 
 void movie_audio_init(void) {
