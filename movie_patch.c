@@ -111,7 +111,7 @@ void *gpu_alloc(void *p, uint32_t align, uint32_t size) {
     return movie_buffers[2];
   default:
     sceClibPrintf("invalid size (0x%08X)\n", size);
-	break;
+    break;
   }
   
   return NULL;
