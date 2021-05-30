@@ -103,3 +103,5 @@ cmake .. && make
 - Freakler for providing LiveArea assets.
 - frangarcj, fgsfds and Bythos for graphics-related stuff.
 - isage for the native audio backend for OpenAL-Soft.
+- VictorPines for PlayStation buttons and m1st3ry for shrinking and centering them.
+- Samilop Iter for betatesting.
