@@ -76,7 +76,6 @@ void *__wrap_memset(void *s, int c, size_t n) {
 }
 
 int debugPrintf(char *text, ...) {
-#ifdef DEBUG
   va_list list;
   char string[512];
 
@@ -89,7 +88,7 @@ int debugPrintf(char *text, ...) {
     sceIoWrite(fd, string, strlen(string));
     sceIoClose(fd);
   }
-#endif
+
   return 0;
 }
 
@@ -98,7 +97,6 @@ int __android_log_assert(const char *cond, const char *tag, const char *fmt, ...
 }
 
 int __android_log_print(int prio, const char *tag, const char *fmt, ...) {
-#ifdef DEBUG
   va_list list;
   char string[512];
 
@@ -107,7 +105,7 @@ int __android_log_print(int prio, const char *tag, const char *fmt, ...) {
   va_end(list);
 
   debugPrintf("[LOG] %s: %s\n", tag, string);
-#endif
+
   return 0;
 }
 
@@ -940,7 +938,7 @@ int main(int argc, char *argv[]) {
     fatal_error("Error could not initialize fios.");
 
   vglEnableRuntimeShaderCompiler(GL_FALSE);
-  vglInitWithCustomThreshold(0, SCREEN_W, SCREEN_H, MEMORY_VITAGL_THRESHOLD_MB * 1024 * 1024, 256 * 1024, 24 * 1024 * 1024, SCE_GXM_MULTISAMPLE_2X);
+  vglInitWithCustomThreshold(0, SCREEN_W, SCREEN_H, MEMORY_VITAGL_THRESHOLD_MB * 1024 * 1024, 256 * 1024, 24 * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
   vglUseVram(GL_TRUE);
 
   movie_setup_player();
