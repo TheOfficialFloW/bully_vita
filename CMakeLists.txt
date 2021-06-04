@@ -18,14 +18,14 @@ set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -Wl,-q,--wrap,memcpy,--wrap,memmove,--wra
 set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS} -std=c++11")
 
 add_executable(Bully
-  main.c
-  dialog.c
-  fios.c
-  so_util.c
-  jni_patch.c
-  movie_patch.c
-  openal_patch.c
-  sha1.c
+  loader/main.c
+  loader/dialog.c
+  loader/fios.c
+  loader/so_util.c
+  loader/jni_patch.c
+  loader/movie_patch.c
+  loader/openal_patch.c
+  loader/sha1.c
 )
 
 target_link_libraries(Bully
