@@ -88,7 +88,7 @@ Additionally, you'll need these libraries to be compiled as well with `-mfloat-a
 - [vitaGL](https://github.com/Rinnegatamante/vitaGL)
 
   - ````bash
-    make SOFTFP_ABI=1 UNPURE_TEXTURES=1 install
+    make SOFTFP_ABI=1 UNPURE_TEXTURES=1 PHYCONT_ON_DEMAND=1 install
     ````
 
 Finally, in the folder of `bully_vita`, install SceLibc stubs using:
