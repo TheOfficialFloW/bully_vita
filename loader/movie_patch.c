@@ -102,21 +102,12 @@ void *gpu_alloc(void *p, uint32_t align, uint32_t size) {
     align = FB_ALIGNMENT;
   }
   size = ALIGN_MEM(size, align);
-  size = ALIGN_MEM(size, 1024 * 1024);
-  SceUID memblock = sceKernelAllocMemBlock("Video Memblock", SCE_KERNEL_MEMBLOCK_TYPE_USER_MAIN_PHYCONT_NC_RW, size, NULL);
-
-  void *res;
-  sceKernelGetMemBlockBase(memblock, &res);
-  sceGxmMapMemory(res, size, (SceGxmMemoryAttribFlags)(SCE_GXM_MEMORY_ATTRIB_READ | SCE_GXM_MEMORY_ATTRIB_WRITE));
-
-  return res;
+  return vglAlloc(size, VGL_MEM_SLOW);
 }
 
 void gpu_free(void *p, void *ptr) {
   glFinish();
-  SceUID memblock = sceKernelFindMemBlockByAddr(ptr, 0);
-  sceGxmUnmapMemory(ptr);
-  sceKernelFreeMemBlock(memblock);
+  vglFree(ptr);
 }
 
 void movie_audio_init(void) {
