@@ -341,6 +341,32 @@ void ZIPFile__SortEntries(ZIPFile *this) {
     sceLibcBridge_fclose(file);
   }
 }
+static void (* FadeLoadScene__Loading)(int result);
+static int (* cMemCard__HasSave)(int save);
+static int (* BullyApplication__OrigLoadSlot)(void **fadeload,int saveSlot);
+static uint64_t (* OS_FileGetDate)(int area, const char *path);
+
+int BullyApplication__OrigContinue(void *this, int a2, int a3, int a4)
+{
+  FadeLoadScene__Loading(*((uintptr_t *)this + 29));
+  
+  uint64_t latestDate = 0;
+  int latestSave=0;
+  if(!*((BYTE *)this + 140)){
+    for (int i = 0; i < 5; i++) {
+      char filename[11];
+      if(cMemCard__HasSave(i)) {
+        sprintf(filename, "BullyFile%d", i);
+        uint64_t date = OS_FileGetDate(1, filename);
+        if (latestDate < date) {
+          latestDate = date;
+          latestSave = i;
+        }
+	  }
+    }
+  }
+  return BullyApplication__OrigLoadSlot(this,latestSave);
+}
 
 int Application__Exit(void *this) {
   return sceKernelExitProcess(0);
@@ -380,6 +406,13 @@ void patch_game(void) {
   hook_thumb(so_find_addr("_ZN7ZIPFile11SortEntriesEv"), (uintptr_t)ZIPFile__SortEntries);
 
   hook_thumb(so_find_addr("_ZN11Application4ExitEv"), (uintptr_t)Application__Exit);
+  
+  // load latest save
+  FadeLoadScene__Loading = (void *)so_find_addr("_ZN13FadeLoadScene7LoadingEv");
+  cMemCard__HasSave = (void *)so_find_addr("_ZN8cMemCard7HasSaveE11MemCardSlot");
+  BullyApplication__OrigLoadSlot = (void *)so_find_addr("_ZN16BullyApplication12OrigLoadSlotE11MemCardSlot");
+  OS_FileGetDate = (void *)so_find_addr("_Z14OS_FileGetDate14OSFileDataAreaPKc");
+  hook_thumb(so_find_addr("_ZN16BullyApplication12OrigContinueEv"), (uintptr_t)BullyApplication__OrigContinue);
 }
 
 extern void *__cxa_atexit;
