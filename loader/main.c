@@ -341,13 +341,13 @@ void ZIPFile__SortEntries(ZIPFile *this) {
     sceLibcBridge_fclose(file);
   }
 }
+
 static void (* FadeLoadScene__Loading)(int result);
 static int (* cMemCard__HasSave)(int save);
 static int (* BullyApplication__OrigLoadSlot)(void **fadeload,int saveSlot);
 static uint64_t (* OS_FileGetDate)(int area, const char *path);
 
-int BullyApplication__OrigContinue(void *this, int a2, int a3, int a4)
-{
+int BullyApplication__OrigContinue(void *this, int a2, int a3, int a4) {
   FadeLoadScene__Loading(*((uintptr_t *)this + 29));
   
   uint64_t latestDate = 0;
