@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "main.h"
+#include "config.h"
 #include "so_util.h"
 
 #include "shaders/movie_f.h"
@@ -265,14 +266,14 @@ void OS_MovieSetSkippable(void) {
 }
 
 void patch_movie(void) {
-  OS_FileOpen = (void *)so_find_addr("_Z11OS_FileOpen14OSFileDataAreaPPvPKc16OSFileAccessType");
-  OS_FileRead = (void *)so_find_addr("_Z11OS_FileReadPvS_i");
-  OS_FileSetPosition = (void *)so_find_addr("_Z18OS_FileSetPositionPvi");
-  OS_FileSize = (void *)so_find_addr("_Z11OS_FileSizePv");
-  OS_FileClose = (void *)so_find_addr("_Z12OS_FileClosePv");
+  OS_FileOpen = (void *)so_symbol(&bully_mod, "_Z11OS_FileOpen14OSFileDataAreaPPvPKc16OSFileAccessType");
+  OS_FileRead = (void *)so_symbol(&bully_mod, "_Z11OS_FileReadPvS_i");
+  OS_FileSetPosition = (void *)so_symbol(&bully_mod, "_Z18OS_FileSetPositionPvi");
+  OS_FileSize = (void *)so_symbol(&bully_mod, "_Z11OS_FileSizePv");
+  OS_FileClose = (void *)so_symbol(&bully_mod, "_Z12OS_FileClosePv");
 
-  hook_thumb(so_find_addr("_Z12OS_MoviePlayPKcbbf"), (uintptr_t)OS_MoviePlay);
-  hook_thumb(so_find_addr("_Z20OS_MovieSetSkippableb"), (uintptr_t)OS_MovieSetSkippable);
-  hook_thumb(so_find_addr("_Z12OS_MovieStopv"), (uintptr_t)OS_MovieStop);
-  hook_thumb(so_find_addr("_Z17OS_MovieIsPlayingPi"), (uintptr_t)OS_MovieIsPlaying);
+  hook_addr(so_symbol(&bully_mod, "_Z12OS_MoviePlayPKcbbf"), (uintptr_t)OS_MoviePlay);
+  hook_addr(so_symbol(&bully_mod, "_Z20OS_MovieSetSkippableb"), (uintptr_t)OS_MovieSetSkippable);
+  hook_addr(so_symbol(&bully_mod, "_Z12OS_MovieStopv"), (uintptr_t)OS_MovieStop);
+  hook_addr(so_symbol(&bully_mod, "_Z17OS_MovieIsPlayingPi"), (uintptr_t)OS_MovieIsPlaying);
 }

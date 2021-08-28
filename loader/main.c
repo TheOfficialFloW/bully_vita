@@ -28,6 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <pthread.h>
 #include <wchar.h>
 #include <wctype.h>
 
@@ -61,7 +62,9 @@ unsigned int _oal_thread_affinity;
 
 int capunlocker_enabled = 0;
 
-SceTouchPanelInfo panelInfoFront, panelInfoBack;
+SceTouchPanelInfo panelInfoFront;
+
+so_module bully_mod;
 
 void *__wrap_memcpy(void *dest, const void *src, size_t n) {
   return sceClibMemcpy(dest, src, n);
@@ -127,12 +130,6 @@ int ret1(void) {
   return 1;
 }
 
-int mkdir(const char *pathname, mode_t mode) {
-  if (sceIoMkdir(pathname, mode) < 0)
-    return -1;
-  return 0;
-}
-
 int OS_ScreenGetHeight(void) {
   return SCREEN_H;
 }
@@ -180,7 +177,7 @@ int pthread_create_fake(int r0, int r1, int r2, void *arg) {
 
 int pthread_mutex_init_fake(SceKernelLwMutexWork **work) {
   *work = (SceKernelLwMutexWork *)memalign(8, sizeof(SceKernelLwMutexWork));
-  if (sceKernelCreateLwMutex(*work, "mutex", SCE_KERNEL_MUTEX_ATTR_RECURSIVE, 0, NULL) < 0)
+  if (sceKernelCreateLwMutex(*work, "mutex", 0x2000 | SCE_KERNEL_MUTEX_ATTR_RECURSIVE, 0, NULL) < 0)
     return -1;
   return 0;
 }
@@ -349,22 +346,23 @@ static uint64_t (* OS_FileGetDate)(int area, const char *path);
 
 int BullyApplication__OrigContinue(void *this, int a2, int a3, int a4) {
   FadeLoadScene__Loading(*((uintptr_t *)this + 29));
-  
+
   uint64_t latestDate = 0;
-  int latestSave=0;
-  if(!*((BYTE *)this + 140)){
+  int latestSave = 0;
+  if (!*((char *)this + 140)) {
     for (int i = 0; i < 5; i++) {
       char filename[11];
-      if(cMemCard__HasSave(i)) {
+      if (cMemCard__HasSave(i)) {
         sprintf(filename, "BullyFile%d", i);
         uint64_t date = OS_FileGetDate(1, filename);
         if (latestDate < date) {
           latestDate = date;
           latestSave = i;
         }
-	  }
+      }
     }
   }
+
   return BullyApplication__OrigLoadSlot(this,latestSave);
 }
 
@@ -376,43 +374,43 @@ extern void *__cxa_guard_acquire;
 extern void *__cxa_guard_release;
 
 void patch_game(void) {
-  hook_thumb(so_find_addr("__cxa_guard_acquire"), (uintptr_t)&__cxa_guard_acquire);
-  hook_thumb(so_find_addr("__cxa_guard_release"), (uintptr_t)&__cxa_guard_release);
+  hook_addr(so_symbol(&bully_mod, "__cxa_guard_acquire"), (uintptr_t)&__cxa_guard_acquire);
+  hook_addr(so_symbol(&bully_mod, "__cxa_guard_release"), (uintptr_t)&__cxa_guard_release);
 
-  hook_thumb(so_find_addr("_Z24NVThreadGetCurrentJNIEnvv"), (uintptr_t)NVThreadGetCurrentJNIEnv);
+  hook_addr(so_symbol(&bully_mod, "_Z24NVThreadGetCurrentJNIEnvv"), (uintptr_t)NVThreadGetCurrentJNIEnv);
 
   // do not use pthread
-  hook_thumb(so_find_addr("_Z15OS_ThreadLaunchPFjPvES_jPKci16OSThreadPriority"), (uintptr_t)OS_ThreadLaunch);
-  hook_thumb(so_find_addr("_Z13OS_ThreadWaitPv"), (uintptr_t)OS_ThreadWait);
+  hook_addr(so_symbol(&bully_mod, "_Z15OS_ThreadLaunchPFjPvES_jPKci16OSThreadPriority"), (uintptr_t)OS_ThreadLaunch);
+  hook_addr(so_symbol(&bully_mod, "_Z13OS_ThreadWaitPv"), (uintptr_t)OS_ThreadWait);
 
-  hook_thumb(so_find_addr("_Z17OS_ScreenGetWidthv"), (uintptr_t)OS_ScreenGetWidth);
-  hook_thumb(so_find_addr("_Z18OS_ScreenGetHeightv"), (uintptr_t)OS_ScreenGetHeight);
+  hook_addr(so_symbol(&bully_mod, "_Z17OS_ScreenGetWidthv"), (uintptr_t)OS_ScreenGetWidth);
+  hook_addr(so_symbol(&bully_mod, "_Z18OS_ScreenGetHeightv"), (uintptr_t)OS_ScreenGetHeight);
 
   // TODO: set deviceChip, definedDevice
-  hook_thumb(so_find_addr("_Z20AND_SystemInitializev"), (uintptr_t)ret0);
+  hook_addr(so_symbol(&bully_mod, "_Z20AND_SystemInitializev"), (uintptr_t)ret0);
 
   // TODO: implement touch here
-  hook_thumb(so_find_addr("_Z13ProcessEventsb"), (uintptr_t)ProcessEvents);
+  hook_addr(so_symbol(&bully_mod, "_Z13ProcessEventsb"), (uintptr_t)ProcessEvents);
 
   // no touch sense.
-  hook_thumb(so_find_addr("_ZN10TouchSenseC2Ev"), (uintptr_t)TouchSense__TouchSense);
-  hook_thumb(so_find_addr("_ZN10TouchSense20stopContinuousEffectEv"), (uintptr_t)ret0);
-  hook_thumb(so_find_addr("_ZN10TouchSense14stopAllEffectsEv"), (uintptr_t)ret0);
-  hook_thumb(so_find_addr("_ZN10TouchSense28startContinuousBuiltinEffectEiiii"), (uintptr_t)ret0);
-  hook_thumb(so_find_addr("_ZN10TouchSense25playBuiltinEffectInternalEii"), (uintptr_t)ret0);
-  hook_thumb(so_find_addr("_ZN10TouchSense17playBuiltinEffectEiiii"), (uintptr_t)ret0);
+  hook_addr(so_symbol(&bully_mod, "_ZN10TouchSenseC2Ev"), (uintptr_t)TouchSense__TouchSense);
+  hook_addr(so_symbol(&bully_mod, "_ZN10TouchSense20stopContinuousEffectEv"), (uintptr_t)ret0);
+  hook_addr(so_symbol(&bully_mod, "_ZN10TouchSense14stopAllEffectsEv"), (uintptr_t)ret0);
+  hook_addr(so_symbol(&bully_mod, "_ZN10TouchSense28startContinuousBuiltinEffectEiiii"), (uintptr_t)ret0);
+  hook_addr(so_symbol(&bully_mod, "_ZN10TouchSense25playBuiltinEffectInternalEii"), (uintptr_t)ret0);
+  hook_addr(so_symbol(&bully_mod, "_ZN10TouchSense17playBuiltinEffectEiiii"), (uintptr_t)ret0);
 
-  ZIPFile__EntryCompare = (void *)so_find_addr("_ZN7ZIPFile12EntryCompareEPKvS1_");
-  hook_thumb(so_find_addr("_ZN7ZIPFile11SortEntriesEv"), (uintptr_t)ZIPFile__SortEntries);
+  ZIPFile__EntryCompare = (void *)so_symbol(&bully_mod, "_ZN7ZIPFile12EntryCompareEPKvS1_");
+  hook_addr(so_symbol(&bully_mod, "_ZN7ZIPFile11SortEntriesEv"), (uintptr_t)ZIPFile__SortEntries);
 
-  hook_thumb(so_find_addr("_ZN11Application4ExitEv"), (uintptr_t)Application__Exit);
-  
+  hook_addr(so_symbol(&bully_mod, "_ZN11Application4ExitEv"), (uintptr_t)Application__Exit);
+
   // load latest save
-  FadeLoadScene__Loading = (void *)so_find_addr("_ZN13FadeLoadScene7LoadingEv");
-  cMemCard__HasSave = (void *)so_find_addr("_ZN8cMemCard7HasSaveE11MemCardSlot");
-  BullyApplication__OrigLoadSlot = (void *)so_find_addr("_ZN16BullyApplication12OrigLoadSlotE11MemCardSlot");
-  OS_FileGetDate = (void *)so_find_addr("_Z14OS_FileGetDate14OSFileDataAreaPKc");
-  hook_thumb(so_find_addr("_ZN16BullyApplication12OrigContinueEv"), (uintptr_t)BullyApplication__OrigContinue);
+  FadeLoadScene__Loading = (void *)so_symbol(&bully_mod, "_ZN13FadeLoadScene7LoadingEv");
+  cMemCard__HasSave = (void *)so_symbol(&bully_mod, "_ZN8cMemCard7HasSaveE11MemCardSlot");
+  BullyApplication__OrigLoadSlot = (void *)so_symbol(&bully_mod, "_ZN16BullyApplication12OrigLoadSlotE11MemCardSlot");
+  OS_FileGetDate = (void *)so_symbol(&bully_mod, "_Z14OS_FileGetDate14OSFileDataAreaPKc");
+  hook_addr(so_symbol(&bully_mod, "_ZN16BullyApplication12OrigContinueEv"), (uintptr_t)BullyApplication__OrigContinue);
 }
 
 extern void *__cxa_atexit;
@@ -580,7 +578,7 @@ extern void *__gnu_ldivmod_helper;
 static FILE *stderr_fake;
 static FILE *stdin_fake;
 
-static DynLibFunction dynlib_functions[] = {
+static so_default_dynlib default_dynlib[] = {
   { "__android_log_assert", (uintptr_t)&__android_log_assert },
   { "__android_log_print", (uintptr_t)&__android_log_print },
   { "__android_log_vprint", (uintptr_t)&__android_log_vprint },
@@ -787,9 +785,9 @@ static DynLibFunction dynlib_functions[] = {
   // { "pthread_cond_timeout_np", (uintptr_t)&pthread_cond_timeout_np },
   // { "pthread_cond_wait", (uintptr_t)&pthread_cond_wait },
   { "pthread_create", (uintptr_t)&pthread_create_fake },
-  { "pthread_getspecific", (uintptr_t)&ret0 },
+  { "pthread_getspecific", (uintptr_t)&pthread_getspecific },
   // { "pthread_join", (uintptr_t)&pthread_join },
-  { "pthread_key_create", (uintptr_t)&ret0 },
+  { "pthread_key_create", (uintptr_t)&pthread_key_create },
   // { "pthread_key_delete", (uintptr_t)&pthread_key_delete },
   { "pthread_mutex_destroy", (uintptr_t)&pthread_mutex_destroy_fake },
   { "pthread_mutex_init", (uintptr_t)&pthread_mutex_init_fake },
@@ -802,7 +800,7 @@ static DynLibFunction dynlib_functions[] = {
   // { "pthread_self", (uintptr_t)&pthread_self },
   // { "pthread_setname_np", (uintptr_t)&pthread_setname_np },
   // { "pthread_setschedparam", (uintptr_t)&pthread_setschedparam },
-  { "pthread_setspecific", (uintptr_t)&ret0 },
+  { "pthread_setspecific", (uintptr_t)&pthread_setspecific },
 
   { "printf", (uintptr_t)&printf },
   { "putchar", (uintptr_t)&putchar },
@@ -932,7 +930,6 @@ int main(int argc, char *argv[]) {
   sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START);
   sceTouchSetSamplingState(SCE_TOUCH_PORT_BACK, SCE_TOUCH_SAMPLING_STATE_START);
   sceTouchGetPanelInfo(SCE_TOUCH_PORT_FRONT, &panelInfoFront);
-  sceTouchGetPanelInfo(SCE_TOUCH_PORT_BACK, &panelInfoBack);
 
   scePowerSetArmClockFrequency(444);
   scePowerSetBusClockFrequency(222);
@@ -953,21 +950,20 @@ int main(int argc, char *argv[]) {
   if (check_kubridge() < 0)
     fatal_error("Error kubridge.skprx is not installed.");
 
-  if (so_load(SO_PATH) < 0)
+  if (so_load(&bully_mod, SO_PATH, LOAD_ADDRESS) < 0)
     fatal_error("Error could not load %s.", SO_PATH);
 
   stderr_fake = stderr;
   stdin_fake = stdin;
-  so_relocate();
-  so_resolve(dynlib_functions, sizeof(dynlib_functions) / sizeof(DynLibFunction), 1);
+  so_relocate(&bully_mod);
+  so_resolve(&bully_mod, default_dynlib, sizeof(default_dynlib), 0);
 
   patch_openal();
   patch_game();
   patch_movie();
-  so_flush_caches();
+  so_flush_caches(&bully_mod);
 
-  so_execute_init_array();
-  so_free_temp();
+  so_initialize(&bully_mod);
 
   if (fios_init() < 0)
     fatal_error("Error could not initialize fios.");

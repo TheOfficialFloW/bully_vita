@@ -19,22 +19,7 @@
 #include "dialog.h"
 #include "so_util.h"
 
-#include "elf.h"
-
-void *text_base, *data_base;
-size_t text_size, data_size;
-
-SceUID text_blockid, data_blockid;
-SceUID temp_blockid;
-
-static Elf32_Ehdr *elf_hdr;
-static Elf32_Phdr *prog_hdr;
-static Elf32_Shdr *sec_hdr;
-static Elf32_Sym *syms;
-static int num_syms;
-
-static char *shstrtab;
-static char *dynstrtab;
+static so_module *head = NULL, *tail = NULL;
 
 void hook_thumb(uintptr_t addr, uintptr_t dst) {
   if (addr == 0)
@@ -60,19 +45,27 @@ void hook_arm(uintptr_t addr, uintptr_t dst) {
   kuKernelCpuUnrestrictedMemcpy((void *)addr, hook, sizeof(hook));
 }
 
-void so_flush_caches(void) {
-  kuKernelFlushCaches(text_base, text_size);
+void hook_addr(uintptr_t addr, uintptr_t dst) {
+  if (addr == 0)
+    return;
+  if (addr & 1)
+    hook_thumb(addr, dst);
+  else
+    hook_arm(addr, dst);
 }
 
-int so_free_temp(void) {
-  return sceKernelFreeMemBlock(temp_blockid);
+void so_flush_caches(so_module *mod) {
+  kuKernelFlushCaches((void *)mod->text_base, mod->text_size);
 }
 
-int so_load(const char *filename) {
+int so_load(so_module *mod, const char *filename, uintptr_t load_addr) {
   int res = 0;
-  void *data_addr = NULL;
+  uintptr_t data_addr = 0;
+  SceUID so_blockid;
   void *so_data;
   size_t so_size;
+
+  memset(mod, 0, sizeof(so_module));
 
   SceUID fd = sceIoOpen(filename, SCE_O_RDONLY, 0);
   if (fd < 0)
@@ -81,11 +74,11 @@ int so_load(const char *filename) {
   so_size = sceIoLseek(fd, 0, SCE_SEEK_END);
   sceIoLseek(fd, 0, SCE_SEEK_SET);
 
-  temp_blockid = sceKernelAllocMemBlock("file", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, (so_size + 0xfff) & ~0xfff, NULL);
-  if (temp_blockid < 0)
-    return temp_blockid;
+  so_blockid = sceKernelAllocMemBlock("file", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, (so_size + 0xfff) & ~0xfff, NULL);
+  if (so_blockid < 0)
+    return so_blockid;
 
-  sceKernelGetMemBlockBase(temp_blockid, &so_data);
+  sceKernelGetMemBlockBase(so_blockid, &so_data);
 
   sceIoRead(fd, so_data, so_size);
   sceIoClose(fd);
@@ -95,56 +88,58 @@ int so_load(const char *filename) {
     goto err_free_so;
   }
 
-  elf_hdr = (Elf32_Ehdr *)so_data;
-  prog_hdr = (Elf32_Phdr *)((uintptr_t)so_data + elf_hdr->e_phoff);
-  sec_hdr = (Elf32_Shdr *)((uintptr_t)so_data + elf_hdr->e_shoff);
+  mod->ehdr = (Elf32_Ehdr *)so_data;
+  mod->phdr = (Elf32_Phdr *)((uintptr_t)so_data + mod->ehdr->e_phoff);
+  mod->shdr = (Elf32_Shdr *)((uintptr_t)so_data + mod->ehdr->e_shoff);
 
-  shstrtab = (char *)((uintptr_t)so_data + sec_hdr[elf_hdr->e_shstrndx].sh_offset);
+  mod->shstr = (char *)((uintptr_t)so_data + mod->shdr[mod->ehdr->e_shstrndx].sh_offset);
 
-  for (int i = 0; i < elf_hdr->e_phnum; i++) {
-    if (prog_hdr[i].p_type == PT_LOAD) {
-      size_t prog_size = ALIGN_MEM(prog_hdr[i].p_memsz, prog_hdr[i].p_align);
+  for (int i = 0; i < mod->ehdr->e_phnum; i++) {
+    if (mod->phdr[i].p_type == PT_LOAD) {
       void *prog_data;
+      size_t prog_size;
 
-      if ((prog_hdr[i].p_flags & PF_X) == PF_X) {
+      if ((mod->phdr[i].p_flags & PF_X) == PF_X) {
+        prog_size = ALIGN_MEM(mod->phdr[i].p_memsz, mod->phdr[i].p_align);
+
         SceKernelAllocMemBlockKernelOpt opt;
         memset(&opt, 0, sizeof(SceKernelAllocMemBlockKernelOpt));
         opt.size = sizeof(SceKernelAllocMemBlockKernelOpt);
-#ifdef LOAD_ADDRESS
         opt.attr = 0x1;
-        opt.field_C = (SceUInt32)LOAD_ADDRESS;
-#endif
-        res = text_blockid = kuKernelAllocMemBlock("rx_block", SCE_KERNEL_MEMBLOCK_TYPE_USER_RX, prog_size, &opt);
+        opt.field_C = (SceUInt32)load_addr;
+        res = mod->text_blockid = kuKernelAllocMemBlock("rx_block", SCE_KERNEL_MEMBLOCK_TYPE_USER_RX, prog_size, &opt);
         if (res < 0)
           goto err_free_so;
 
-        sceKernelGetMemBlockBase(text_blockid, &prog_data);
+        sceKernelGetMemBlockBase(mod->text_blockid, &prog_data);
 
-        prog_hdr[i].p_vaddr += (Elf32_Addr)prog_data;
+        mod->phdr[i].p_vaddr += (Elf32_Addr)prog_data;
 
-        text_base = (void *)prog_hdr[i].p_vaddr;
-        text_size = prog_hdr[i].p_memsz;
+        mod->text_base = mod->phdr[i].p_vaddr;
+        mod->text_size = mod->phdr[i].p_memsz;
 
-        data_addr = prog_data + prog_size;
+        data_addr = (uintptr_t)prog_data + prog_size;
       } else {
-        if (data_addr == NULL)
+        if (data_addr == 0)
           goto err_free_so;
+
+        prog_size = ALIGN_MEM(mod->phdr[i].p_memsz + mod->phdr[i].p_vaddr - (data_addr - mod->text_base), mod->phdr[i].p_align);
 
         SceKernelAllocMemBlockKernelOpt opt;
         memset(&opt, 0, sizeof(SceKernelAllocMemBlockKernelOpt));
         opt.size = sizeof(SceKernelAllocMemBlockKernelOpt);
         opt.attr = 0x1;
         opt.field_C = (SceUInt32)data_addr;
-        res = data_blockid = kuKernelAllocMemBlock("rw_block", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, prog_size, &opt);
+        res = mod->data_blockid = kuKernelAllocMemBlock("rw_block", SCE_KERNEL_MEMBLOCK_TYPE_USER_RW, prog_size, &opt);
         if (res < 0)
           goto err_free_text;
 
-        sceKernelGetMemBlockBase(data_blockid, &prog_data);
+        sceKernelGetMemBlockBase(mod->data_blockid, &prog_data);
 
-        prog_hdr[i].p_vaddr += (Elf32_Addr)text_base;
+        mod->phdr[i].p_vaddr += (Elf32_Addr)mod->text_base;
 
-        data_base = (void *)prog_hdr[i].p_vaddr;
-        data_size = prog_hdr[i].p_memsz;
+        mod->data_base = mod->phdr[i].p_vaddr;
+        mod->data_size = mod->phdr[i].p_memsz;
       }
 
       char *zero = malloc(prog_size);
@@ -152,161 +147,230 @@ int so_load(const char *filename) {
       kuKernelCpuUnrestrictedMemcpy(prog_data, zero, prog_size);
       free(zero);
 
-      kuKernelCpuUnrestrictedMemcpy((void *)prog_hdr[i].p_vaddr, (void *)((uintptr_t)so_data + prog_hdr[i].p_offset), prog_hdr[i].p_filesz);
+      kuKernelCpuUnrestrictedMemcpy((void *)mod->phdr[i].p_vaddr, (void *)((uintptr_t)so_data + mod->phdr[i].p_offset), mod->phdr[i].p_filesz);
     }
   }
 
-  syms = NULL;
-  dynstrtab = NULL;
-
-  for (int i = 0; i < elf_hdr->e_shnum; i++) {
-    char *sh_name = shstrtab + sec_hdr[i].sh_name;
-    if (strcmp(sh_name, ".dynsym") == 0) {
-      syms = (Elf32_Sym *)((uintptr_t)text_base + sec_hdr[i].sh_addr);
-      num_syms = sec_hdr[i].sh_size / sizeof(Elf32_Sym);
+  for (int i = 0; i < mod->ehdr->e_shnum; i++) {
+    char *sh_name = mod->shstr + mod->shdr[i].sh_name;
+    uintptr_t sh_addr = mod->text_base + mod->shdr[i].sh_addr;
+    size_t sh_size = mod->shdr[i].sh_size;
+    if (strcmp(sh_name, ".dynamic") == 0) {
+      mod->dynamic = (Elf32_Dyn *)sh_addr;
+      mod->num_dynamic = sh_size / sizeof(Elf32_Dyn);
     } else if (strcmp(sh_name, ".dynstr") == 0) {
-      dynstrtab = (char *)((uintptr_t)text_base + sec_hdr[i].sh_addr);
+      mod->dynstr = (char *)sh_addr;
+    } else if (strcmp(sh_name, ".dynsym") == 0) {
+      mod->dynsym = (Elf32_Sym *)sh_addr;
+      mod->num_dynsym = sh_size / sizeof(Elf32_Sym);
+    } else if (strcmp(sh_name, ".rel.dyn") == 0) {
+      mod->reldyn = (Elf32_Rel *)sh_addr;
+      mod->num_reldyn = sh_size / sizeof(Elf32_Rel);
+    } else if (strcmp(sh_name, ".rel.plt") == 0) {
+      mod->relplt = (Elf32_Rel *)sh_addr;
+      mod->num_relplt = sh_size / sizeof(Elf32_Rel);
+    } else if (strcmp(sh_name, ".init_array") == 0) {
+      mod->init_array = (void *)sh_addr;
+      mod->num_init_array = sh_size / sizeof(void *);
+    } else if (strcmp(sh_name, ".hash") == 0) {
+      mod->hash = (void *)sh_addr;
     }
   }
 
-  if (syms == NULL || dynstrtab == NULL) {
+  if (mod->dynamic == NULL ||
+      mod->dynstr == NULL ||
+      mod->dynsym == NULL ||
+      mod->reldyn == NULL ||
+      mod->relplt == NULL) {
     res = -2;
     goto err_free_data;
+  }
+
+  for (int i = 0; i < mod->num_dynamic; i++) {
+    switch (mod->dynamic[i].d_tag) {
+      case DT_SONAME:
+        mod->soname = mod->dynstr + mod->dynamic[i].d_un.d_ptr;
+        break;
+      default:
+        break;
+    }
+  }
+
+  sceKernelFreeMemBlock(so_blockid);
+
+  if (!head && !tail) {
+    head = mod;
+    tail = mod;
+  } else {
+    tail->next = mod;
+    tail = mod;
   }
 
   return 0;
 
 err_free_data:
-  sceKernelFreeMemBlock(data_blockid);
+  sceKernelFreeMemBlock(mod->data_blockid);
 err_free_text:
-  sceKernelFreeMemBlock(text_blockid);
+  sceKernelFreeMemBlock(mod->text_blockid);
 err_free_so:
-  sceKernelFreeMemBlock(temp_blockid);
+  sceKernelFreeMemBlock(so_blockid);
 
   return res;
 }
 
-int so_relocate(void) {
-  for (int i = 0; i < elf_hdr->e_shnum; i++) {
-    char *sh_name = shstrtab + sec_hdr[i].sh_name;
-    if (strcmp(sh_name, ".rel.dyn") == 0 || strcmp(sh_name, ".rel.plt") == 0) {
-      Elf32_Rel *rels = (Elf32_Rel *)((uintptr_t)text_base + sec_hdr[i].sh_addr);
-      for (int j = 0; j < sec_hdr[i].sh_size / sizeof(Elf32_Rel); j++) {
-        uintptr_t *ptr = (uintptr_t *)(text_base + rels[j].r_offset);
-        Elf32_Sym *sym = &syms[ELF32_R_SYM(rels[j].r_info)];
+int so_relocate(so_module *mod) {
+  for (int i = 0; i < mod->num_reldyn + mod->num_relplt; i++) {
+    Elf32_Rel *rel = i < mod->num_reldyn ? &mod->reldyn[i] : &mod->relplt[i - mod->num_reldyn];
+    Elf32_Sym *sym = &mod->dynsym[ELF32_R_SYM(rel->r_info)];
+    uintptr_t *ptr = (uintptr_t *)(mod->text_base + rel->r_offset);
 
-        int type = ELF32_R_TYPE(rels[j].r_info);
-        switch (type) {
-          case R_ARM_ABS32:
-            *ptr += (uintptr_t)text_base + sym->st_value;
-            break;
+    int type = ELF32_R_TYPE(rel->r_info);
+    switch (type) {
+      case R_ARM_ABS32:
+        if (sym->st_shndx != SHN_UNDEF)
+          *ptr += mod->text_base + sym->st_value;
+        else
+          *ptr = mod->text_base + rel->r_offset; // make it crash for debugging
+        break;
 
-          case R_ARM_RELATIVE:
-            *ptr += (uintptr_t)text_base;
-            break;
+      case R_ARM_RELATIVE:
+        *ptr += mod->text_base;
+        break;
 
-          case R_ARM_GLOB_DAT:
-          case R_ARM_JUMP_SLOT:
-          {
-            if (sym->st_shndx != SHN_UNDEF)
-              *ptr = (uintptr_t)text_base + sym->st_value;
-            break;
-          }
-
-          default:
-            fatal_error("Error unknown relocation type %x\n", type);
-            break;
-        }
+      case R_ARM_GLOB_DAT:
+      case R_ARM_JUMP_SLOT:
+      {
+        if (sym->st_shndx != SHN_UNDEF)
+          *ptr = mod->text_base + sym->st_value;
+        else
+          *ptr = mod->text_base + rel->r_offset; // make it crash for debugging
+        break;
       }
+
+      default:
+        fatal_error("Error unknown relocation type %x\n", type);
+        break;
     }
   }
 
   return 0;
 }
 
-int so_resolve(DynLibFunction *funcs, int num_funcs, int taint_missing_imports) {
-  for (int i = 0; i < elf_hdr->e_shnum; i++) {
-    char *sh_name = shstrtab + sec_hdr[i].sh_name;
-    if (strcmp(sh_name, ".rel.dyn") == 0 || strcmp(sh_name, ".rel.plt") == 0) {
-      Elf32_Rel *rels = (Elf32_Rel *)((uintptr_t)text_base + sec_hdr[i].sh_addr);
-      for (int j = 0; j < sec_hdr[i].sh_size / sizeof(Elf32_Rel); j++) {
-        uintptr_t *ptr = (uintptr_t *)(text_base + rels[j].r_offset);
-        Elf32_Sym *sym = &syms[ELF32_R_SYM(rels[j].r_info)];
+uintptr_t so_resolve_link(so_module *mod, const char *symbol) {
+  for (int i = 0; i < mod->num_dynamic; i++) {
+    switch (mod->dynamic[i].d_tag) {
+      case DT_NEEDED:
+      {
+        so_module *curr = head;
+        while (curr) {
+          if (curr != mod && strcmp(curr->soname, mod->dynstr + mod->dynamic[i].d_un.d_ptr) == 0) {
+            uintptr_t link = so_symbol(curr, symbol);
+            if (link)
+              return link;
+          }
+          curr = curr->next;
+        }
 
-        int type = ELF32_R_TYPE(rels[j].r_info);
-        switch (type) {
-          case R_ARM_GLOB_DAT:
-          case R_ARM_JUMP_SLOT:
-          {
-            if (sym->st_shndx == SHN_UNDEF) {
-              // make it crash for debugging
-              if (taint_missing_imports)
-                *ptr = rels[j].r_offset;
+        break;
+      }
+      default:
+        break;
+    }
+  }
 
-              char *name = dynstrtab + sym->st_name;
-              for (int k = 0; k < num_funcs; k++) {
-                if (strcmp(name, funcs[k].symbol) == 0) {
-                  *ptr = funcs[k].func;
-                  break;
-                }
-              }
+  return 0;
+}
+
+int so_resolve(so_module *mod, so_default_dynlib *default_dynlib, int size_default_dynlib, int default_dynlib_only) {
+  for (int i = 0; i < mod->num_reldyn + mod->num_relplt; i++) {
+    Elf32_Rel *rel = i < mod->num_reldyn ? &mod->reldyn[i] : &mod->relplt[i - mod->num_reldyn];
+    Elf32_Sym *sym = &mod->dynsym[ELF32_R_SYM(rel->r_info)];
+    uintptr_t *ptr = (uintptr_t *)(mod->text_base + rel->r_offset);
+
+    int type = ELF32_R_TYPE(rel->r_info);
+    switch (type) {
+      case R_ARM_ABS32:
+      case R_ARM_GLOB_DAT:
+      case R_ARM_JUMP_SLOT:
+      {
+        if (sym->st_shndx == SHN_UNDEF) {
+          int resolved = 0;
+          if (!default_dynlib_only) {
+            uintptr_t link = so_resolve_link(mod, mod->dynstr + sym->st_name);
+            if (link) {
+              // debugPrintf("Resolved from dependencies: %s\n", mod->dynstr + sym->st_name);
+              *ptr = link;
+              resolved = 1;
             }
-
-            break;
           }
 
-          default:
-            break;
+          for (int j = 0; j < size_default_dynlib / sizeof(so_default_dynlib); j++) {
+            if (strcmp(mod->dynstr + sym->st_name, default_dynlib[j].symbol) == 0) {
+              if (resolved) {
+                // debugPrintf("Overriden: %s\n", mod->dynstr + sym->st_name);
+              } else {
+                // debugPrintf("Resolved manually: %s\n", mod->dynstr + sym->st_name);
+              }
+              *ptr = default_dynlib[j].func;
+              resolved = 1;
+              break;
+            }
+          }
+
+          if (!resolved) {
+            // debugPrintf("Missing: %s\n", mod->dynstr + sym->st_name);
+          }
         }
+
+        break;
       }
+
+      default:
+        break;
     }
   }
 
   return 0;
 }
 
-void so_execute_init_array(void) {
-  for (int i = 0; i < elf_hdr->e_shnum; i++) {
-    char *sh_name = shstrtab + sec_hdr[i].sh_name;
-    if (strcmp(sh_name, ".init_array") == 0) {
-      int (** init_array)() = (void *)((uintptr_t)text_base + sec_hdr[i].sh_addr);
-      for (int j = 0; j < sec_hdr[i].sh_size / 4; j++) {
-        if (init_array[j] != 0)
-          init_array[j]();
-      }
-    }
+void so_initialize(so_module *mod) {
+  for (int i = 0; i < mod->num_init_array; i++) {
+    if (mod->init_array[i])
+      mod->init_array[i]();
   }
 }
 
-uintptr_t so_find_addr(const char *symbol) {
-  for (int i = 0; i < num_syms; i++) {
-    char *name = dynstrtab + syms[i].st_name;
-    if (strcmp(name, symbol) == 0)
-      return (uintptr_t)text_base + syms[i].st_value;
+uint32_t so_hash(const uint8_t *name) {
+  uint64_t h = 0, g;
+  while (*name) {
+    h = (h << 4) + *name++;
+    if ((g = (h & 0xf0000000)) != 0)
+      h ^= g >> 24;
+    h &= 0x0fffffff;
   }
-
-  fatal_error("Error could not find symbol %s\n", symbol);
-  return 0;
+  return h;
 }
 
-uintptr_t so_find_rel_addr(const char *symbol) {
-  for (int i = 0; i < elf_hdr->e_shnum; i++) {
-    char *sh_name = shstrtab + sec_hdr[i].sh_name;
-    if (strcmp(sh_name, ".rel.dyn") == 0 || strcmp(sh_name, ".rel.plt") == 0) {
-      Elf32_Rel *rels = (Elf32_Rel *)((uintptr_t)text_base + sec_hdr[i].sh_addr);
-      for (int j = 0; j < sec_hdr[i].sh_size / sizeof(Elf32_Rel); j++) {
-        Elf32_Sym *sym = &syms[ELF32_R_SYM(rels[j].r_info)];
-
-        int type = ELF32_R_TYPE(rels[j].r_info);
-        if (type == R_ARM_GLOB_DAT || type == R_ARM_JUMP_SLOT) {
-          char *name = dynstrtab + sym->st_name;
-          if (strcmp(name, symbol) == 0)
-            return (uintptr_t)text_base + rels[j].r_offset;
-        }
-      }
+uintptr_t so_symbol(so_module *mod, const char *symbol) {
+  if (mod->hash) {
+    uint32_t hash = so_hash((const uint8_t *)symbol);
+    uint32_t nbucket = mod->hash[0];
+    uint32_t *bucket = &mod->hash[2];
+    uint32_t *chain = &bucket[nbucket];
+    for (int i = bucket[hash % nbucket]; i; i = chain[i]) {
+      if (mod->dynsym[i].st_shndx == SHN_UNDEF)
+        continue;
+      if (mod->dynsym[i].st_info != SHN_UNDEF && strcmp(mod->dynstr + mod->dynsym[i].st_name, symbol) == 0)
+        return mod->text_base + mod->dynsym[i].st_value;
     }
   }
 
-  fatal_error("Error could not find symbol %s\n", symbol);
+  for (int i = 0; i < mod->num_dynsym; i++) {
+    if (mod->dynsym[i].st_shndx == SHN_UNDEF)
+      continue;
+    if (mod->dynsym[i].st_info != SHN_UNDEF && strcmp(mod->dynstr + mod->dynsym[i].st_name, symbol) == 0)
+      return mod->text_base + mod->dynsym[i].st_value;
+  }
+
   return 0;
 }

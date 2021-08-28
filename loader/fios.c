@@ -16,16 +16,19 @@
 #include "so_util.h"
 
 #define MAX_PATH_LENGTH 128
-#define RAMCACHEBLOCKSIZE (64 * 1024)
-#define RAMCACHEBLOCKNUM 32
+#define RAMCACHEBLOCKSIZE (32 * 1024)
+#define RAMCACHEBLOCKNUM 1024
 
 static int64_t g_OpStorage[SCE_FIOS_OP_STORAGE_SIZE(64, MAX_PATH_LENGTH) / sizeof(int64_t) + 1];
 static int64_t g_ChunkStorage[SCE_FIOS_CHUNK_STORAGE_SIZE(1024) / sizeof(int64_t) + 1];
 static int64_t g_FHStorage[SCE_FIOS_FH_STORAGE_SIZE(32, MAX_PATH_LENGTH) / sizeof(int64_t) + 1];
 static int64_t g_DHStorage[SCE_FIOS_DH_STORAGE_SIZE(32, MAX_PATH_LENGTH) / sizeof(int64_t) + 1];
 
-static SceFiosRamCacheContext g_RamCacheContext = SCE_FIOS_RAM_CACHE_CONTEXT_INITIALIZER;
-static char *g_RamCacheWorkBuffer;
+static SceFiosRamCacheContext g_MainRamCacheContext = SCE_FIOS_RAM_CACHE_CONTEXT_INITIALIZER;
+static char *g_MainRamCacheWorkBuffer;
+
+static SceFiosRamCacheContext g_PatchRamCacheContext = SCE_FIOS_RAM_CACHE_CONTEXT_INITIALIZER;
+static char *g_PatchRamCacheWorkBuffer;
 
 int fios_init(void) {
   int res;
@@ -53,15 +56,27 @@ int fios_init(void) {
   if (res < 0)
     return res;
 
-  g_RamCacheWorkBuffer = memalign(8, RAMCACHEBLOCKNUM * RAMCACHEBLOCKSIZE);
-  if (!g_RamCacheWorkBuffer)
+  g_MainRamCacheWorkBuffer = memalign(8, RAMCACHEBLOCKNUM * RAMCACHEBLOCKSIZE);
+  if (!g_MainRamCacheWorkBuffer)
     return -1;
 
-  g_RamCacheContext.pPath = DATA_PATH;
-  g_RamCacheContext.pWorkBuffer = g_RamCacheWorkBuffer;
-  g_RamCacheContext.workBufferSize = RAMCACHEBLOCKNUM * RAMCACHEBLOCKSIZE;
-  g_RamCacheContext.blockSize = RAMCACHEBLOCKSIZE;
-  res = sceFiosIOFilterAdd(0, sceFiosIOFilterCache, &g_RamCacheContext);
+  g_MainRamCacheContext.pPath = DATA_PATH "/Android/main.obb";
+  g_MainRamCacheContext.pWorkBuffer = g_MainRamCacheWorkBuffer;
+  g_MainRamCacheContext.workBufferSize = RAMCACHEBLOCKNUM * RAMCACHEBLOCKSIZE;
+  g_MainRamCacheContext.blockSize = RAMCACHEBLOCKSIZE;
+  res = sceFiosIOFilterAdd(0, sceFiosIOFilterCache, &g_MainRamCacheContext);
+  if (res < 0)
+    return res;
+
+  g_PatchRamCacheWorkBuffer = memalign(8, RAMCACHEBLOCKNUM * RAMCACHEBLOCKSIZE);
+  if (!g_PatchRamCacheWorkBuffer)
+    return -1;
+
+  g_PatchRamCacheContext.pPath = DATA_PATH "/Android/patch.obb";
+  g_PatchRamCacheContext.pWorkBuffer = g_PatchRamCacheWorkBuffer;
+  g_PatchRamCacheContext.workBufferSize = RAMCACHEBLOCKNUM * RAMCACHEBLOCKSIZE;
+  g_PatchRamCacheContext.blockSize = RAMCACHEBLOCKSIZE;
+  res = sceFiosIOFilterAdd(1, sceFiosIOFilterCache, &g_PatchRamCacheContext);
   if (res < 0)
     return res;
 
@@ -70,5 +85,6 @@ int fios_init(void) {
 
 void fios_terminate(void) {
   sceFiosTerminate();
-  free(g_RamCacheWorkBuffer);
+  free(g_PatchRamCacheWorkBuffer);
+  free(g_MainRamCacheWorkBuffer);
 }
